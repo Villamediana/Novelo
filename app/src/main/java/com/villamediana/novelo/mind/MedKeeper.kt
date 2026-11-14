@@ -48,7 +48,7 @@ internal object MedKeeper {
                     continue
                 }
             }
-            var m = old ?: Med(name = name ?: continue, startsAt = start(ask.start, now, z) ?: Doses.startOfDay(now, z), captureId = captureId, createdAt = now, updatedAt = now)
+            var m = old ?: Med(name = name ?: continue, startsAt = firstDose(ask, now, z), captureId = captureId, createdAt = now, updatedAt = now)
             if (old != null) {
                 name?.let { m = m.copy(name = it) }
                 ask.start?.let { s -> start(s, now, z)?.let { m = m.copy(startsAt = it) } }
@@ -146,6 +146,19 @@ internal object MedKeeper {
 
     /** A dose given this much before its time still counts as that one. */
     private const val EARLY_MS = 30 * 60_000L
+
+    /**
+     * When a new one starts: at its first dose — the day said (or today) at the first of the times she
+     * said (for every N hours, the first dose); a time said is that time; no times at all, the whole day.
+     * ("De 8 em 8 horas, a primeira às 8": today's 00:00 isn't one of its doses.)
+     */
+    private fun firstDose(ask: MedAsk, now: Long, z: ZoneId): Long {
+        val said = Brain.time(ask.start, z)
+        if (said?.second == true) return said.first
+        val day = Doses.dayOf(said?.first ?: now, z)
+        val first = ask.times.firstNotNullOfOrNull { Doses.time(it) } ?: return day.atStartOfDay(z).toInstant().toEpochMilli()
+        return day.atTime(first).atZone(z).toInstant().toEpochMilli()
+    }
 
     /**
      * When it starts: a day only (or none said) is the whole day — today's times already gone stay, to

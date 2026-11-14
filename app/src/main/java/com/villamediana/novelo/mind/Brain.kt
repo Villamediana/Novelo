@@ -265,7 +265,7 @@ Como preencher:
 - meds: [{"name": "Amoxicilina", "strength": "500 mg", "dose": "½ comprimido", "amount": "250 mg", "person": "Cooper", "times": ["08:00", "16:00", "00:00"], "every_hours": 8, "start": "AAAA-MM-DD", "end": "AAAA-MM-DD", "notes": "depois de comer"}]
   · strength: quanto tem uma unidade, como diz a caixa; dose: quanto toma de cada vez; amount: quanto isso dá — faça a conta (500 mg e meio comprimido → 250 mg).
   · person: pra quem é, quando não é pra ela mesma (o nome, como ela diz). Pra ela, fica de fora.
-  · times: todos os horários do dia, HH:MM. De tantas em tantas horas: "every_hours" e os times a partir da primeira dose. Só em alguns dias da semana: "days" [1-7, 1 = segunda]. Só quando precisa, sem horário: sem times.
+  · times: todos os horários do dia, HH:MM. De tantas em tantas horas: "every_hours" e os times em ordem a partir da primeira dose (o primeiro de "times" é a primeira dose). Só em alguns dias da semana: "days" [1-7, 1 = segunda]. Só quando precisa, sem horário: sem times.
   · Quando ela não diz o horário, use horários que os outros REMÉDIOS já têm, pra os lembretes chegarem juntos num aviso só; não havendo, horários comuns (08:00, 20:00…).
   · start: quando começa (sem dizer, agora). end: o último dia de tomar — "por 7 dias" conta o dia do começo como o primeiro; uso contínuo, sem end.
   · Pra mudar um remédio: {"id": N, só o que muda}. Voltar a ser contínuo: "end": "none". Parou ou acabou: "end" com o dia de hoje. Tirar da lista: "delete": true.

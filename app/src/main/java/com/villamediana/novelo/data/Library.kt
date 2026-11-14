@@ -165,15 +165,23 @@ class Library(private val db: NoveloDatabase, private val reminders: ReminderSyn
     }
 
     /**
-     * Before 1.64.1 a medicine said without a day (or "hoje" with no hour) began the minute it was written,
-     * and today's time already gone was lost: those begin at the start of that day. Runs on opening; one
-     * already right is left alone.
+     * A medicine written down without when it started began the minute it was written (before 1.64.1: today's
+     * dose already gone was lost) or at the start of that day (1.64.1: a dose before the first one showed, as
+     * "00:00" of every 8 hours). Those begin at their first dose: the last of that day's times up to when it
+     * was written (none before it: the start of the day). Runs on opening; one already right is left alone.
      */
     suspend fun fixMedStarts(zone: java.time.ZoneId = java.time.ZoneId.systemDefault()) {
-        val wrong = db.meds().all().filter { it.startsAt / 60_000L == it.createdAt / 60_000L && it.startsAt != com.villamediana.novelo.meds.Doses.startOfDay(it.startsAt, zone) }
-        if (wrong.isEmpty()) return
-        wrong.forEach { db.meds().update(it.copy(startsAt = com.villamediana.novelo.meds.Doses.startOfDay(it.startsAt, zone))) }
-        reminders.syncMeds()
+        val doses = com.villamediana.novelo.meds.Doses
+        var changed = false
+        for (m in db.meds().all()) {
+            if (doses.times(m).isEmpty()) continue
+            val dayStart = doses.startOfDay(m.createdAt, zone)
+            if (m.startsAt / 60_000L != m.createdAt / 60_000L && m.startsAt != dayStart) continue
+            val day = doses.dayOf(m.createdAt, zone)
+            val first = doses.day(listOf(m.copy(startsAt = dayStart)), day, zone).map { it.at }.lastOrNull { it <= m.createdAt } ?: dayStart
+            if (first != m.startsAt) { db.meds().update(m.copy(startsAt = first)); changed = true }
+        }
+        if (changed) reminders.syncMeds()
     }
 
     /** A medicine set by hand: kept, and its reminders go again. */
