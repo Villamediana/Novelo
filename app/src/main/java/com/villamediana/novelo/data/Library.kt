@@ -258,6 +258,53 @@ class Library(private val db: NoveloDatabase, private val reminders: ReminderSyn
         reminders.sync(listOf(id))
     }
 
+    /**
+     * One time of a task that repeats ticked ([done]) or not any more — Hoje has each of its times
+     * (Comida meninos at 10, 14 and 20) with its own circle (1.70).
+     */
+    suspend fun setTime(id: Long, at: Long, done: Boolean, zone: java.time.ZoneId = java.time.ZoneId.systemDefault()) {
+        val e = db.entries().get(id) ?: return
+        val repeat = com.villamediana.novelo.remind.Repeat
+        if (!repeat.repeats(e)) return
+        if ((at in repeat.doneOf(e)) == done) return
+        val now = clock()
+        db.entries().update(repeat.tick(e, at, done, now, zone))
+        db.progress().insert(Progress(entryId = id, at = now, text = "", status = (if (done) Status.DONE else Status.TODO).key))
+        reminders.sync(listOf(id))
+    }
+
+    /** One time of a task that repeats, tapped: done, or done no more. Any other task: [toggleDone]. */
+    suspend fun toggleTime(id: Long, at: Long, zone: java.time.ZoneId = java.time.ZoneId.systemDefault()) {
+        val e = db.entries().get(id) ?: return
+        if (!com.villamediana.novelo.remind.Repeat.repeats(e)) return toggleDone(id)
+        setTime(id, at, done = at !in com.villamediana.novelo.remind.Repeat.doneOf(e), zone = zone)
+    }
+
+    /**
+     * The tasks that repeat from before 1.70 (their times weren't kept one by one): they count from
+     * today's first time (or from when they were made, today), and today's ticks — each kept as a
+     * "done" in their history — tick the time nearest to them. Runs on opening; once per task.
+     */
+    suspend fun fixRepeats(zone: java.time.ZoneId = java.time.ZoneId.systemDefault()) {
+        val repeat = com.villamediana.novelo.remind.Repeat
+        val now = clock()
+        val today = java.time.Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
+        val dayStart = today.atStartOfDay(zone).toInstant().toEpochMilli()
+        val dayEnd = today.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        for (e in db.entries().openTasks()) {
+            if (e.occursFrom != null) continue
+            val rule = repeat.read(e.repeat) ?: continue
+            val first = rule.next(maxOf(e.createdAt, dayStart) - 1, zone) ?: continue
+            val times = rule.between(first, dayEnd, zone)
+            val done = mutableSetOf<Long>()
+            db.progress().latest(e.id, 50).filter { it.status == Status.DONE.key && it.at >= dayStart }.sortedBy { it.at }.forEach { p ->
+                times.filter { it !in done }.minByOrNull { kotlin.math.abs(it - p.at) }?.let { done += it }
+            }
+            val fixed = e.copy(occursFrom = first, doneTimes = repeat.writeDone(done))
+            db.entries().update(fixed.copy(remindAt = repeat.nextRing(fixed, now, zone) ?: e.remindAt))
+        }
+    }
+
     suspend fun toggleDone(id: Long) {
         val e = db.entries().get(id) ?: return
         setStatus(id, if (e.statusEnum == Status.DONE) Status.TODO else Status.DONE)
@@ -320,7 +367,19 @@ class Library(private val db: NoveloDatabase, private val reminders: ReminderSyn
     /** Its reminder at [at] (null: none), coming back as [repeat] says (null: once). */
     suspend fun setReminder(id: Long, at: Long?, repeat: com.villamediana.novelo.remind.Repeat? = null) {
         val e = db.entries().get(id) ?: return
-        db.entries().update(e.copy(remindAt = at, repeat = if (at == null) null else com.villamediana.novelo.remind.Repeat.write(repeat), updatedAt = clock()))
+        val rule = if (at == null) null else com.villamediana.novelo.remind.Repeat.write(repeat)
+        // A task that repeats counts its times from the first one (the same rule set again keeps the ones it has).
+        val same = rule != null && rule == e.repeat && e.occursFrom != null
+        db.entries().update(
+            e.copy(
+                remindAt = at,
+                repeat = rule,
+                rungAt = null,
+                occursFrom = if (same) e.occursFrom else if (rule != null && e.kindEnum == Kind.TASK) at else null,
+                doneTimes = if (same) e.doneTimes else "[]",
+                updatedAt = clock(),
+            ),
+        )
         reminders.sync(listOf(id))
     }
 
