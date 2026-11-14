@@ -1118,7 +1118,7 @@ class ScreensTest {
     @Test
     fun medicinesHaveTheirOwnTab() {
         val start = LocalDate.now(zone).atStartOfDay(zone).toInstant().toEpochMilli()
-        // Losartana an hour ago (to tick in Hoje, which shows the last 2 hours and the next time) and later today.
+        // Losartana an hour ago (to tick in Hoje, which shows from 2 hours ago to the day's end) and later today.
         val hourAgo = java.time.LocalTime.now(zone).minusHours(1).withSecond(0).withNano(0)
         val later = hourAgo.plusHours(4)
         fun times(vararg t: String) = com.villamediana.novelo.meds.Doses.writeTimes(t.map { java.time.LocalTime.parse(it) })
@@ -1154,17 +1154,17 @@ class ScreensTest {
             compose.onNodeWithTag("meds").performScrollToNode(androidx.compose.ui.test.hasText("quando precisar"))
             compose.onNodeWithTag("meds").performScrollToIndex(0)
             // Remédios is the list: no times of the day here (they are Hoje's).
-            assertTrue(compose.onAllNodesWithTag("today-doses").fetchSemanticsNodes().isEmpty())
+            assertTrue(compose.onAllNodesWithTag("today-time").fetchSemanticsNodes().isEmpty())
             // Only Cooper's.
             compose.onAllNodesWithText("Cooper")[0].performClick()
             compose.waitUntil(5_000) { compose.onAllNodesWithText("Losartana").fetchSemanticsNodes().isEmpty() }
             compose.onAllNodesWithText("Amoxicilina")[0].assertExists()
             compose.mainClock.advanceTimeBy(800)
             shot("70b-meds-cooper")
-            // Hoje: the times near now; the Losartana of an hour ago, ticked there.
+            // Hoje: its times from 2 hours ago on, in Pra hoje; the Losartana of an hour ago, ticked there.
             nav.go(Screen.Library(Filter.TODAY))
-            compose.waitUntil(5_000) { compose.onAllNodesWithTag("today-doses").fetchSemanticsNodes().isNotEmpty() }
-            compose.onAllNodesWithText("Remédios")[0].assertExists()
+            compose.waitUntil(5_000) { compose.onAllNodesWithTag("today-time").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText("Pra hoje").assertExists()
             val ago = LocalDate.now(zone).atTime(hourAgo).atZone(zone).toInstant().toEpochMilli()
             if (hourAgo.isBefore(java.time.LocalTime.now(zone))) {
                 compose.onNodeWithTag("tick-${ids[1]}-$ago", useUnmergedTree = true).performClick()
@@ -1278,32 +1278,58 @@ class ScreensTest {
         }
     }
 
-    /** Hoje by the hour, like the medicines: the tasks with a time in its order (the one next in the accent), the others "ao longo do dia". */
+    /**
+     * Hoje by its times (1.67, 1.69): one card per hour from 2 hours ago to the day's end, the medicines and the
+     * tasks of that hour together (the next one in the accent); one left more than 2 hours, in Atrasadas; the
+     * others "ao longo do dia".
+     */
     @Test
     fun hojeGoesByTheHour() {
         val today = LocalDate.now(zone)
-        val nowTime = java.time.LocalTime.now(zone)
+        val nowTime = java.time.LocalTime.now(zone).withSecond(0).withNano(0)
         // Kept inside today whatever the hour the test runs.
-        val earlier = today.atTime(nowTime.minusHours(3).let { if (it.isAfter(nowTime)) java.time.LocalTime.MIN else it }).atZone(zone).toInstant().toEpochMilli()
-        val next = today.atTime(nowTime.plusHours(1).let { if (it.isBefore(nowTime)) java.time.LocalTime.of(23, 59) else it }).atZone(zone).toInstant().toEpochMilli()
+        val earlierTime = nowTime.minusHours(3).let { if (it.isAfter(nowTime)) java.time.LocalTime.MIN else it }
+        val earlier = today.atTime(earlierTime).atZone(zone).toInstant().toEpochMilli()
+        val nextTime = nowTime.plusHours(1).let { if (it.isBefore(nowTime)) java.time.LocalTime.of(23, 59) else it }
+        val next = today.atTime(nextTime).atZone(zone).toInstant().toEpochMilli()
+        val start = today.atStartOfDay(zone).toInstant().toEpochMilli()
         val ids = runBlocking {
             listOf(
                 Entry(kind = "task", title = "Ligar pro banco", status = "todo", dueAt = earlier, dueHasTime = true, createdAt = now, updatedAt = now),
                 Entry(kind = "task", title = "Comida meninos", status = "todo", remindAt = next, createdAt = now, updatedAt = now),
-                Entry(kind = "task", title = "Pagar a luz", status = "todo", dueAt = today.atStartOfDay(zone).toInstant().toEpochMilli(), createdAt = now, updatedAt = now),
+                Entry(kind = "task", title = "Pagar a luz", status = "todo", dueAt = start, createdAt = now, updatedAt = now),
             ).map { graph.db.entries().insert(it) }
+        }
+        // A medicine at the same hour as the boys' dinner: the same card.
+        val med = runBlocking {
+            graph.db.meds().insert(com.villamediana.novelo.data.Med(name = "Vitamina D", dose = "1 cápsula", person = "Aurora", times = com.villamediana.novelo.meds.Doses.writeTimes(listOf(nextTime)), startsAt = start - day, createdAt = now, updatedAt = now))
         }
         val nav = Nav().apply { go(Screen.Library(Filter.TODAY)) }
         compose.setContent { NoveloTheme(ThemeMode.LIGHT) { (nav.top as? Screen.Library)?.let { LibraryScreen(nav, it) } } }
         try {
             compose.waitUntil(5_000) { compose.onAllNodesWithText("Comida meninos").fetchSemanticsNodes().isNotEmpty() }
+            compose.waitUntil(5_000) { compose.onAllNodesWithText("Vitamina D").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithText("Pra hoje").assertExists()
             compose.onNodeWithText("Ao longo do dia").assertExists()
             compose.onAllNodesWithText("próximo")[0].assertExists()
+            val together = androidx.compose.ui.test.hasTestTag("today-time") and
+                androidx.compose.ui.test.hasAnyDescendant(androidx.compose.ui.test.hasText("Comida meninos")) and
+                androidx.compose.ui.test.hasAnyDescendant(androidx.compose.ui.test.hasText("Vitamina D"))
+            assertEquals(1, compose.onAllNodes(together, useUnmergedTree = true).fetchSemanticsNodes().size)
+            // 3 hours ago and not done: in Atrasadas, not among the times.
+            if (nowTime.hour >= 3) {
+                compose.onNodeWithText("Atrasadas").assertExists()
+                val inTimes = androidx.compose.ui.test.hasTestTag("today-time") and androidx.compose.ui.test.hasAnyDescendant(androidx.compose.ui.test.hasText("Ligar pro banco"))
+                assertTrue(compose.onAllNodes(inTimes, useUnmergedTree = true).fetchSemanticsNodes().isEmpty())
+            }
             compose.mainClock.advanceTimeBy(800)
             shot("77-today-by-the-hour")
+            // The task ticked at its hour: done, it leaves the card; the medicine stays.
+            compose.onNodeWithTag("check-task-${ids[1]}", useUnmergedTree = true).performClick()
+            compose.waitUntil(5_000) { runBlocking { graph.db.entries().get(ids[1])!!.status } == "done" }
+            compose.onAllNodesWithText("Vitamina D")[0].assertExists()
         } finally {
-            runBlocking { ids.forEach { graph.db.entries().delete(it) } }
+            runBlocking { ids.forEach { graph.db.entries().delete(it) }; graph.db.meds().delete(med) }
         }
     }
 

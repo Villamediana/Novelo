@@ -339,14 +339,14 @@ class MedsTest {
         assertTrue(Brain.SYSTEM.contains("vou dar às 10"))
     }
 
-    /** Hoje shows only what is near: the times of the last 2 hours and the next one. */
+    /** Hoje (1.69): the times of the last 2 hours and every one still to come today. */
     @Test
-    fun hojeShowsOnlyTheNearTimes() {
+    fun hojeShowsFromTwoHoursAgoToTheDaysEnd() {
         val slots = listOf(0, 7, 8, 10, 13, 16, 20).map { Doses.Slot(at(today, it), emptyList()) }
-        val near = com.villamediana.novelo.ui.meds.nearTimes(slots, at(today, 9, 41))
-        assertEquals(listOf(at(today, 8), at(today, 10)), near.map { it.at })
+        val near = com.villamediana.novelo.ui.meds.fromNear(slots, at(today, 9, 41))
+        assertEquals(listOf(8, 10, 13, 16, 20).map { at(today, it) }, near.map { it.at })
         // Late at night, nothing more today: only the last 2 hours.
-        assertEquals(listOf(at(today, 20)), com.villamediana.novelo.ui.meds.nearTimes(slots, at(today, 21)).map { it.at })
+        assertEquals(listOf(at(today, 20)), com.villamediana.novelo.ui.meds.fromNear(slots, at(today, 21)).map { it.at })
     }
 
     /**
@@ -384,11 +384,11 @@ class MedsTest {
         assertEquals(2, com.villamediana.novelo.ui.meds.dosesDue(listOf(amox, losartana), emptyList(), at(today, 9), zone))
         assertEquals(1, com.villamediana.novelo.ui.meds.dosesDue(listOf(amox, losartana), listOf(MedTaken(2, at(today, 8), now)), at(today, 9), zone))
         assertEquals(0, com.villamediana.novelo.ui.meds.dosesDue(listOf(amox, losartana), emptyList(), at(today, 11), zone))
-        // 00:30: last night's 23:00 is still near (to tick), with today's next one.
+        // 00:30: last night's 23:00 is still near (to tick), with today's to come.
         val night = med("Noturno", listOf("23:00", "07:00"), start = at(today.minusDays(3), 0), id = 3)
         val yesterday = Doses.day(listOf(night), today.minusDays(1), zone)
-        val near = com.villamediana.novelo.ui.meds.nearTimes(yesterday + Doses.day(listOf(night), today, zone), at(today, 0, 30))
-        assertEquals(listOf(at(today.minusDays(1), 23), at(today, 7)), near.map { it.at })
+        val near = com.villamediana.novelo.ui.meds.fromNear(yesterday + Doses.day(listOf(night), today, zone), at(today, 0, 30))
+        assertEquals(listOf(at(today.minusDays(1), 23), at(today, 7), at(today, 23)), near.map { it.at })
     }
 
     @Test

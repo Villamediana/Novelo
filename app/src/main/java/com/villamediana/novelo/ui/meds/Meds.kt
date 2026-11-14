@@ -1,6 +1,5 @@
 package com.villamediana.novelo.ui.meds
 
-import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -78,7 +77,6 @@ import com.villamediana.novelo.ui.components.stitched
 import com.villamediana.novelo.ui.theme.NoveloColors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.time.Instant
 import java.time.ZoneId
 
 /** Now, again every half minute: what is due "agora" moves on by itself. */
@@ -203,12 +201,11 @@ fun dosesDue(meds: List<Med>, taken: List<com.villamediana.novelo.data.MedTaken>
     return meds.filter { it.name.isNotBlank() }.sumOf { m -> Doses.slots(m, now - NEAR_BACK_MS, now, zone).count { (m.id to it) !in done } }
 }
 
-/** Hoje's medicines: the times of the last [back] (taken or not) and the next one to come. */
-fun nearTimes(slots: List<Doses.Slot>, now: Long, back: Long = NEAR_BACK_MS): List<Doses.Slot> {
-    val gone = slots.filter { it.at in (now - back)..now }
-    val next = slots.firstOrNull { it.at > now }
-    return gone + listOfNotNull(next)
-}
+/**
+ * Hoje's medicines (Miguel, 1.69): the times of the last [back] (taken or not, to tick one forgotten) and
+ * every one still to come today — the day from near now on.
+ */
+fun fromNear(slots: List<Doses.Slot>, now: Long, back: Long = NEAR_BACK_MS): List<Doses.Slot> = slots.filter { it.at >= now - back }
 
 /** "Você" in the people filter (a medicine with no person is hers). */
 private const val ME = "\u0000me"
@@ -218,77 +215,31 @@ private const val ME = "\u0000me"
 fun personColor(person: String?): Color = person?.let { CategoryColors.of(it, NoveloColors.palette.dark) } ?: NoveloColors.Accent
 
 /**
- * The day's times, one card each touching the next: the hour on the left (the one that is due now
- * or next in the accent), the medicines of that hour on the right, each with its circle to tick.
+ * One medicine at one of Hoje's times: its circle to tick (in its person's color), the name, the dose
+ * and how to take it; a touch opens it.
  */
 @Composable
-fun TodayDoses(
-    slots: List<Doses.Slot>,
-    taken: Set<Pair<Long, Long>>,
-    now: Long,
-    onToggle: (Long, Long) -> Unit,
-    onOpen: (Long) -> Unit,
-    showPeople: Boolean,
-    modifier: Modifier = Modifier,
-) {
-    val zone = ZoneId.systemDefault()
-    // The time to look at: the first not all taken that isn't long gone ("agora" near it, "próximo" before it).
-    val focus = slots.firstOrNull { s -> s.at >= now - FOCUS_BEFORE_MS && s.meds.any { (it.id to s.at) !in taken } }?.at
-    Column(modifier.fillMaxWidth().testTag("today-doses")) {
-        slots.forEachIndexed { i, s ->
-            val shape = groupShape(i, slots.size)
-            val done = s.meds.all { (it.id to s.at) in taken }
-            val here = s.at == focus
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(shape)
-                    .background(NoveloColors.Surface)
-                    .stitched(shape, StitchColor)
-                    .padding(start = 18.dp, end = 10.dp, top = 8.dp, bottom = 8.dp)
-                    .animateContentSize(),
-            ) {
-                Column(Modifier.width(62.dp).padding(top = 10.dp)) {
-                    Text(
-                        Doses.hhmm(Instant.ofEpochMilli(s.at).atZone(zone).toLocalTime()),
-                        style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"),
-                        color = when { done -> NoveloColors.TextFaint; here -> NoveloColors.Accent; else -> NoveloColors.Text },
-                        textDecoration = if (done) TextDecoration.LineThrough else null,
-                    )
-                    if (here) Text(t(if (s.at <= now) R.string.med_now else R.string.med_next), style = MaterialTheme.typography.labelSmall, color = NoveloColors.Accent)
-                }
-                Column(Modifier.weight(1f)) {
-                    s.meds.forEach { m ->
-                        val ok = (m.id to s.at) in taken
-                        Row(
-                            Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { onOpen(m.id) }.testTag("dose-${m.id}-${s.at}"),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Box(Modifier.testTag("tick-${m.id}-${s.at}")) { CheckCircle(ok, personColor(m.person), { onToggle(m.id, s.at) }, size = 22.dp) }
-                            Column(Modifier.weight(1f).padding(vertical = 6.dp)) {
-                                Text(
-                                    m.name,
-                                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
-                                    color = if (ok) NoveloColors.TextMuted else NoveloColors.Text,
-                                    textDecoration = if (ok) TextDecoration.LineThrough else null,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                val sub = listOfNotNull(m.dose?.takeIf { it.isNotBlank() } ?: MedText.amount(m) ?: m.strength, m.notes.takeIf { it.isNotBlank() }).joinToString(" · ")
-                                if (sub.isNotEmpty()) Text(sub, style = MaterialTheme.typography.labelMedium, color = NoveloColors.TextFaint, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                            if (showPeople && m.person != null) CategoryTag(m.person, Modifier.padding(start = 8.dp, end = 6.dp))
-                        }
-                    }
-                }
-            }
-            if (i < slots.lastIndex) Spacer(Modifier.height(GroupGap))
+fun DoseRow(m: Med, at: Long, taken: Boolean, onToggle: (Long, Long) -> Unit, onOpen: (Long) -> Unit, showPerson: Boolean) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { onOpen(m.id) }.testTag("dose-${m.id}-$at"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.testTag("tick-${m.id}-$at")) { CheckCircle(taken, personColor(m.person), { onToggle(m.id, at) }, size = 22.dp) }
+        Column(Modifier.weight(1f).padding(vertical = 6.dp)) {
+            Text(
+                m.name,
+                style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
+                color = if (taken) NoveloColors.TextMuted else NoveloColors.Text,
+                textDecoration = if (taken) TextDecoration.LineThrough else null,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            val sub = listOfNotNull(m.dose?.takeIf { it.isNotBlank() } ?: MedText.amount(m) ?: m.strength, m.notes.takeIf { it.isNotBlank() }).joinToString(" · ")
+            if (sub.isNotEmpty()) Text(sub, style = MaterialTheme.typography.labelMedium, color = NoveloColors.TextFaint, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
+        if (showPerson && m.person != null) CategoryTag(m.person, Modifier.padding(start = 8.dp, end = 6.dp))
     }
 }
-
-/** A time stays "agora" this long after it, while not taken. */
-private const val FOCUS_BEFORE_MS = 90 * 60_000L
 
 /**
  * One medicine as a card: its photo (or a capsule in its person's color), the name, the dose, the times,

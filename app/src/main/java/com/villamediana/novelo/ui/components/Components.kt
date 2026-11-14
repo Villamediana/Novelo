@@ -375,9 +375,6 @@ object Dates {
     fun due(e: Entry, zone: ZoneId = ZoneId.systemDefault()): String? = e.dueAt?.let { if (e.dueHasTime) dayTime(it, zone) else day(it, zone) }
 }
 
-/** The hour on the left of a card in Hoje (as the medicines): its time, "agora"/"próximo" under the one due, the ones gone quieter. */
-data class Clock(val text: String, val note: String? = null, val accent: Boolean = false, val gone: Boolean = false)
-
 /**
  * One entry as a card: the title, and one quiet line of what matters (due, steps, status, a
  * snippet). The same on the main screen's answers and in the lists. [label] says what just happened
@@ -400,8 +397,6 @@ fun EntryCard(
     dated: Boolean = false,
     /** A task's category, quiet, at the start of the line under it. */
     showCategory: Boolean = false,
-    /** Hoje: its hour on the left (then not said again in the line under it). */
-    clock: Clock? = null,
 ) {
     val kind = entry.kindEnum
     val done = entry.statusEnum == Status.DONE
@@ -415,19 +410,9 @@ fun EntryCard(
             .background(NoveloColors.Surface)
             .stitched(shape, StitchColor)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .padding(start = if (clock != null) 18.dp else if (checkable) 6.dp else 20.dp, end = 20.dp, top = 16.dp, bottom = 16.dp),
+            .padding(start = if (checkable) 6.dp else 20.dp, end = 20.dp, top = 16.dp, bottom = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (clock != null) {
-            Column(Modifier.width(56.dp)) {
-                Text(
-                    clock.text,
-                    style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"),
-                    color = when { clock.accent -> NoveloColors.Accent; clock.gone -> NoveloColors.TextFaint; else -> NoveloColors.Text },
-                )
-                clock.note?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = NoveloColors.Accent) }
-            }
-        }
         if (checkable) CheckCircle(done, NoveloColors.Accent, onToggle!!)
         Column(Modifier.weight(1f)) {
             if (label != null) {
@@ -465,7 +450,7 @@ fun EntryCard(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            val meta = meta(entry, named = showKind && label == null && !checkable, withStatus = showStatus, inToday = inToday, dated = dated, timeShown = clock != null)
+            val meta = meta(entry, named = showKind && label == null && !checkable, withStatus = showStatus, inToday = inToday, dated = dated)
             val category = entry.category?.takeIf { showCategory && kind == Kind.TASK }
             if (meta.isNotEmpty() || category != null) {
                 Spacer(Modifier.height(5.dp))
@@ -524,11 +509,11 @@ fun meta(
     }
 }
 
-private const val MAX_DOTS = 6
+internal const val MAX_DOTS = 6
 
 /** Steps as beads on the thread: the done ones full, the rest just the ring. */
 @Composable
-private fun StepDots(done: Int, total: Int) {
+internal fun StepDots(done: Int, total: Int) {
     val accent = NoveloColors.Accent
     Canvas(Modifier.size(width = (total * 12 - 4).dp, height = 8.dp)) {
         val r = 4.dp.toPx()
