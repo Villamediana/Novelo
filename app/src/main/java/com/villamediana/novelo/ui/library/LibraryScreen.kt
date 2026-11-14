@@ -343,30 +343,21 @@ fun LibraryScreen(nav: Nav, screen: Screen.Library) {
                         f == Filter.GALLERY -> Gallery(photos, empty = { Empty(Filter.GALLERY) })
                         f == Filter.MEDS -> com.villamediana.novelo.ui.meds.MedsPage(onOpen = { nav.go(Screen.Med(it)) }, empty = { Empty(Filter.MEDS) })
                         f == Filter.TODAY && list != null -> {
-                            // Hoje: the day's medicines first (their times, to tick), then the tasks.
+                            // Hoje by its times (Miguel, 1.69): the medicines and the tasks of each hour together, from 2 hours
+                            // ago (to tick one forgotten) to the end of the day; a task left more than 2 hours goes to Atrasadas.
                             val now = com.villamediana.novelo.ui.meds.rememberNow()
                             val day = com.villamediana.novelo.ui.meds.rememberToday(now)
-                            // Only what is near (Miguel, 1.66): the times of the last 2 hours (to tick one forgotten) and the next
-                            // one; the whole day is in Remédios, and the reminders come by themselves.
-                            val slots = remember(day?.slots, day?.lastNight, now / 60_000) { com.villamediana.novelo.ui.meds.nearTimes(day?.lastNight.orEmpty() + day?.slots.orEmpty(), now) }
-                            val medsLabel = t(R.string.tab_meds)
+                            val slots = remember(day?.slots, day?.lastNight, now / 60_000) { com.villamediana.novelo.ui.meds.fromNear(day?.lastNight.orEmpty() + day?.slots.orEmpty(), now) }
                             Entries(
-                                f, sectionsFor(f, list, showDone), list, terms = null, showDone = showDone, onShowDone = { showDone = !showDone }, open = open, toggle = toggle,
+                                f, sectionsFor(f, list, showDone, now = now), list, terms = null, showDone = showDone, onShowDone = { showDone = !showDone }, open = open, toggle = toggle,
                                 fold = t(R.string.section_done_today), folded = !showDoneToday, onFold = { showDoneToday = !showDoneToday },
-                                top = if (day == null || slots.isEmpty()) null else ({
-                                    item(key = "label-meds") { SectionLabel(medsLabel, Modifier.animateItem()) }
-                                    item(key = "today-meds") {
-                                        com.villamediana.novelo.ui.meds.TodayDoses(
-                                            slots, day.taken, now,
-                                            onToggle = { id, at -> graph.scope.launch { graph.library.toggleTaken(id, at) } },
-                                            onOpen = { nav.go(Screen.Med(it)) },
-                                            showPeople = slots.any { s -> s.meds.any { it.person != null } },
-                                            modifier = Modifier.animateItem(),
-                                        )
-                                    }
-                                    item(key = "today-meds-gap") { Spacer(Modifier.height(6.dp)) }
-                                }),
-                                topLabels = if (slots.isEmpty()) emptyList() else List(3) { medsLabel },
+                                doses = day?.let { d ->
+                                    DayDoses(
+                                        slots, d.taken,
+                                        onToggle = { id, at -> graph.scope.launch { graph.library.toggleTaken(id, at) } },
+                                        onOpen = { nav.go(Screen.Med(it)) },
+                                    )
+                                },
                             )
                         }
                         f == Filter.TASKS && list != null -> {
@@ -412,24 +403,29 @@ private fun Entries(
     files: List<com.villamediana.novelo.data.KeptFile> = emptyList(),
     /** The day's photos on the day's diary card. */
     dayPhotos: DayPhotosIndex = DayPhotosIndex.EMPTY,
-    /** What comes before the groups (Hoje: the day's medicines), and what the edge's handle says over each of its items. */
+    /** What comes before the groups (the search: the medicines it found), and what the edge's handle says over each of its items. */
     top: (androidx.compose.foundation.lazy.LazyListScope.() -> Unit)? = null,
     topLabels: List<String> = emptyList(),
+    /** Hoje: the medicines of its times, in the cards of Pra hoje with the tasks of the same hour. */
+    doses: DayDoses? = null,
     /** The group that folds (Feitas, Feitas hoje): a header with its count; its cards come down under it when opened. */
     fold: String? = null,
     folded: Boolean = true,
     onFold: () -> Unit = {},
 ) {
     val searched = terms != null
-    // Hoje › Pra hoje: each task with its hour on the left, the one due now or next in the accent ("agora", "próximo").
+    // Hoje › Pra hoje: one card per time, its medicines and its tasks; the one due now or next in the accent ("agora", "próximo").
     val now = com.villamediana.novelo.ui.meds.rememberNow()
     val forToday = t(R.string.section_for_today)
+    val byTime = filter == Filter.TODAY && !searched
     val dayStart = Instant.ofEpochMilli(now).atZone(ZoneId.systemDefault()).toLocalDate().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-    val dayEnd = dayStart + 86_400_000L
-    val focusId = remember(sections, now / 60_000) {
-        if (filter != Filter.TODAY) null
-        else sections.firstOrNull { it.first == forToday }?.second?.firstOrNull { e -> todayTime(e, dayStart, dayEnd)?.let { it >= now - FOCUS_BEFORE_MS } == true }?.id
+    val dayEnd = Instant.ofEpochMilli(dayStart).atZone(ZoneId.systemDefault()).toLocalDate().plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+    val times = remember(byTime, sections, doses?.slots, dayStart) {
+        if (!byTime) emptyList()
+        else moments(doses?.slots.orEmpty(), sections.firstOrNull { it.first == forToday }?.second.orEmpty().mapNotNull { e -> todayTime(e, dayStart, dayEnd)?.let { e to it } })
     }
+    val focusAt = remember(times, doses?.taken, now / 60_000) { focusOf(times, doses?.taken.orEmpty(), now) }
+    val showPeople = remember(doses?.slots) { doses?.slots.orEmpty().any { s -> s.meds.any { it.person != null } } }
     // Tarefas: a task held and dragged moves within its group (doing, to do, waiting); Notas: a note
     // moves in the one list. Let go, the order is kept.
     val movable = (filter == Filter.TASKS || filter == Filter.NOTES) && !searched
@@ -454,11 +450,15 @@ private fun Entries(
     val byGroup = filter == Filter.TODAY || filter == Filter.TASKS
     // The diary's days without a label (all but Hoje and Ontem) keep apart by a gap.
     val gapped = filter == Filter.DIARY && !searched
-    val tags = remember(groups, searched, byGroup, topLabels, folded) {
+    val tags = remember(groups, searched, byGroup, topLabels, folded, times) {
         if (searched) emptyList()
         else buildList<String?> {
             addAll(topLabels)
             groups.forEach { (label, items) ->
+                if (byTime && label == forToday) {
+                    if (times.isNotEmpty()) repeat(times.size + 1) { add(label) }
+                    return@forEach
+                }
                 if (items.isEmpty()) return@forEach
                 if (fold != null && label == fold) {
                     add(label)
@@ -478,7 +478,7 @@ private fun Entries(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = if (searched) 14.dp else 0.dp, bottom = 40.dp),
         ) {
             top?.invoke(this)
-            if (!searched && top == null && groups.filter { fold == null || it.first != fold }.all { it.second.isEmpty() }) {
+            if (!searched && top == null && times.isEmpty() && groups.filter { fold == null || it.first != fold }.all { it.second.isEmpty() }) {
                 item(key = "empty") { Empty(filter) }
             }
             if (photos.isNotEmpty()) {
@@ -511,6 +511,21 @@ private fun Entries(
                     }
                     return@forEach
                 }
+                // Pra hoje: by its times, each card the medicines and the tasks of that hour.
+                if (byTime && label == forToday) {
+                    if (times.isEmpty()) return@forEach
+                    item(key = "label-$label") { SectionLabel(label, Modifier.animateItem()) }
+                    itemsIndexed(times, key = { _, m -> "time-${m.at}" }) { i, m ->
+                        Box(Modifier.animateItem().padding(bottom = if (i == times.lastIndex) 0.dp else GroupGap)) {
+                            MomentCard(
+                                m, groupShape(i, times.size, outer = 22.dp), focus = m.at == focusAt, now = now, taken = doses?.taken.orEmpty(),
+                                onDose = { id, at -> doses?.onToggle?.invoke(id, at) }, onMed = { id -> doses?.onOpen?.invoke(id) },
+                                onTask = open, onToggleTask = toggle, showPeople = showPeople, modifier = Modifier.testTag("today-time"),
+                            )
+                        }
+                    }
+                    return@forEach
+                }
                 if (label != null && (items.isNotEmpty() || searched)) item(key = "label-$label") { SectionLabel(label, Modifier.animateItem()) }
                 else if (label == null && gapped && items.isNotEmpty()) item(key = "gap-${items.first().id}") { Spacer(Modifier.height(DAY_GAP)) }
                 // One block per group: the cards touch, only the ends are round.
@@ -531,14 +546,6 @@ private fun Entries(
                             shape = shape,
                             dated = !searched && filter == Filter.NOTES,
                             showCategory = !searched && showCategories,
-                            clock = if (!searched && filter == Filter.TODAY && label == forToday) todayTime(e, dayStart, dayEnd)?.let { at ->
-                                com.villamediana.novelo.ui.components.Clock(
-                                    Dates.time(at),
-                                    note = if (e.id == focusId) t(if (at <= now) R.string.med_now else R.string.med_next) else null,
-                                    accent = e.id == focusId,
-                                    gone = at < now && e.id != focusId,
-                                )
-                            } else null,
                             modifier = modifier,
                         )
                     }
@@ -764,12 +771,17 @@ fun sectionsFor(filter: Filter, all: List<Entry>, showDone: Boolean, zone: ZoneI
     val open = tasks.filter { it.statusEnum != Status.DONE }
     return when (filter) {
         Filter.TODAY -> {
-            val late = open.filter { it.dueAt != null && it.dueAt < startToday }.sortedBy { it.dueAt }
+            val before = open.filter { it.dueAt != null && it.dueAt < startToday }
             val due = open.filter { (it.dueAt != null && it.dueAt in startToday until endToday) || (it.remindAt != null && it.remindAt in startToday until endToday) }
-                .filter { it !in late }
-            // By the hour, like the medicines (Miguel, 1.67): the ones with a time today in its order; the others after.
-            val timed = due.mapNotNull { e -> todayTime(e, startToday, endToday)?.let { e to it } }.sortedBy { it.second }.map { it.first }
-            val loose = due.filter { it !in timed }.sortedBy { it.dueAt ?: it.createdAt }
+                .filter { it !in before }
+            // By the hour, with the medicines (Miguel, 1.67, 1.69): the ones with a time from 2 hours ago on, in its order.
+            val hours = due.mapNotNull { e -> todayTime(e, startToday, endToday)?.let { e to it } }
+            val timed = hours.filter { it.second >= now - com.villamediana.novelo.ui.meds.NEAR_BACK_MS }.sortedBy { it.second }.map { it.first }
+            // Its time gone more than 2 hours ago and not done: Atrasadas (Miguel, 1.69) — when it was due by today; one
+            // that only had its reminder today, due later, stays for the day.
+            val gone = hours.map { it.first }.filter { it !in timed && (it.dueAt == null || it.dueAt < endToday) }
+            val late = (before + gone).sortedBy { it.dueAt ?: todayTime(it, startToday, endToday) ?: it.createdAt }
+            val loose = due.filter { it !in timed && it !in gone }.sortedBy { it.dueAt ?: it.createdAt }
             val doing = open.filter { it.statusEnum == Status.DOING && it !in late && it !in due }
             val said = all.filter { it.createdAt >= startToday && it.kindEnum != Kind.TASK }
             val doneToday = tasks.filter { it.doneAt != null && it.doneAt >= startToday }
@@ -879,9 +891,6 @@ private fun FoldHeader(label: String, count: Int, open: Boolean, onClick: () -> 
         Icon(NoveloIcons.Chevron, null, tint = NoveloColors.TextFaint, modifier = Modifier.size(14.dp).graphicsLayer { rotationZ = turn })
     }
 }
-
-/** A time stays "agora" this long after it, while not done (as the medicines). */
-private const val FOCUS_BEFORE_MS = 90 * 60_000L
 
 /** Between two days of the diary that have no label. */
 private val DAY_GAP = 16.dp
