@@ -65,6 +65,7 @@ object Readable {
     const val SOUNDS = "Áudios"
     const val FILES = "Arquivos"
     const val BACKUPS = "Backups"
+    const val MEDS = "Remédios.md"
 
     private val WHEN = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm")
     private val DAY = DateTimeFormatter.ofPattern("yyyy-MM-dd")
@@ -163,6 +164,7 @@ object Readable {
             if (e.kindEnum == Kind.TASK) {
                 add("Tarefa")
                 add(status(e.statusEnum ?: Status.TODO))
+                e.category?.takeIf { it.isNotBlank() }?.let { add("categoria $it") }
                 e.dueAt?.let { add("vence " + (if (e.dueHasTime) at(it, zone) else day(it, zone))) }
                 e.remindAt?.let { add("lembrete " + at(it, zone)) }
                 e.doneAt?.let { add("feita em " + at(it, zone)) }
@@ -192,6 +194,40 @@ object Readable {
         if (e.updatedAt > e.createdAt + 60_000) append(" · atualizado em ").append(at(e.updatedAt, zone))
         append('\n')
     }
+
+    /** The medicines, in the open too: one file with each of them (who takes it, the dose, the times, from when until when, the doses given). Null: none. */
+    fun meds(s: Snapshot, zone: ZoneId): String? {
+        val list = s.meds.filter { it.name.isNotBlank() }
+        if (list.isEmpty()) return null
+        val given = s.medsTaken.groupingBy { it.medId }.eachCount()
+        val doses = com.villamediana.novelo.meds.Doses
+        return buildString {
+            append("# Remédios\n\n")
+            list.sortedWith(compareBy({ it.person.orEmpty().lowercase() }, { it.name.lowercase() })).forEach { m ->
+                append("## ").append(m.name.trim())
+                m.person?.let { append(" — ").append(it) }
+                append("\n\n")
+                listOfNotNull(m.dose, m.amount, m.strength?.let { "de $it" }).filter { it.isNotBlank() }.takeIf { it.isNotEmpty() }?.let { append("- Dose: ").append(it.joinToString(" · ")).append('\n') }
+                val times = doses.times(m)
+                append("- Horários: ")
+                if (times.isEmpty()) append("quando precisar")
+                else {
+                    append(times.joinToString(", ") { doses.hhmm(it) })
+                    m.everyHours?.let { append(" (de ").append(it).append(" em ").append(it).append(" h)") }
+                    doses.days(m).takeIf { it.isNotEmpty() }?.let { d -> append(" · dias ").append(d.sorted().joinToString(", ") { DAYS[it - 1] }) }
+                }
+                append('\n')
+                append("- Desde ").append(day(m.startsAt, zone))
+                m.endsAt?.let { append(" até ").append(day(it, zone)) } ?: append(" (uso contínuo)")
+                append('\n')
+                if (m.notes.isNotBlank()) append("- Como tomar: ").append(m.notes.trim().replace('\n', ' ')).append('\n')
+                given[m.id]?.let { append("- Doses dadas: ").append(it).append('\n') }
+                append('\n')
+            }
+        }
+    }
+
+    private val DAYS = listOf("seg", "ter", "qua", "qui", "sex", "sáb", "dom")
 
     private fun link(path: String) = path.replace(" ", "%20").replace("(", "%28").replace(")", "%29")
 
