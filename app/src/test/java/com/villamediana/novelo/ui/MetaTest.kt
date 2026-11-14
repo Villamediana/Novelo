@@ -40,4 +40,18 @@ class MetaTest {
         assertEquals(listOf("Diário"), texts(diary, named = true, inToday = true))
         assertEquals(listOf("Diário · hoje"), texts(diary, named = true))
     }
+
+    /** Tarefas: one that repeats with its last time come not done says that time, in the accent — not "lembrete amanhã" (1.70). */
+    @Test
+    fun aRepeatingTaskSaysTheTimeNotDone() {
+        val rule = com.villamediana.novelo.remind.Repeat(com.villamediana.novelo.remind.Repeat.DAY, time = "06:00", times = listOf("06:00", "07:00"))
+        val e = task(null, remind = at(today.plusDays(1), 6), status = "todo").copy(
+            repeat = com.villamediana.novelo.remind.Repeat.write(rule), occursFrom = at(today, 6),
+            doneTimes = com.villamediana.novelo.remind.Repeat.writeDone(listOf(at(today, 6))),
+        )
+        assertEquals(listOf("hoje · 07:00" to true), meta(e, named = false, withStatus = true, zone = zone, now = now))
+        // Done: the next reminder, as before.
+        val done = e.copy(doneTimes = com.villamediana.novelo.remind.Repeat.writeDone(listOf(at(today, 6), at(today, 7))))
+        assertEquals(listOf("lembrete amanhã · 06:00"), texts(done))
+    }
 }

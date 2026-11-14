@@ -99,6 +99,7 @@ import com.villamediana.novelo.ui.components.CategoryChip
 import com.villamediana.novelo.data.Categories
 import com.villamediana.novelo.data.Kind
 import com.villamediana.novelo.data.Status
+import com.villamediana.novelo.remind.Repeat
 import com.villamediana.novelo.mind.Recall
 import com.villamediana.novelo.ui.entry.PhotoRow
 import com.villamediana.novelo.ui.components.Mosaic
@@ -199,6 +200,7 @@ fun LibraryScreen(nav: Nav, screen: Screen.Library) {
     LaunchedEffect(searching) { if (searching) runCatching { focus.requestFocus() } }
 
     val toggle: (Long) -> Unit = { id -> scope.launch { graph.library.toggleDone(id) } }
+    val toggleAt: (Long, Long) -> Unit = { id, at -> scope.launch { graph.library.toggleTime(id, at) } }
     val open: (Long) -> Unit = { nav.go(Screen.Entry(it)) }
     // Tarefas: the category she is looking at (null: all of them).
     var category by rememberSaveable { mutableStateOf<String?>(null) }
@@ -350,7 +352,7 @@ fun LibraryScreen(nav: Nav, screen: Screen.Library) {
                             val slots = remember(day?.slots, day?.lastNight, now / 60_000) { com.villamediana.novelo.ui.meds.fromNear(day?.lastNight.orEmpty() + day?.slots.orEmpty(), now) }
                             Entries(
                                 f, sectionsFor(f, list, showDone, now = now), list, terms = null, showDone = showDone, onShowDone = { showDone = !showDone }, open = open, toggle = toggle,
-                                fold = t(R.string.section_done_today), folded = !showDoneToday, onFold = { showDoneToday = !showDoneToday },
+                                toggleAt = toggleAt, fold = t(R.string.section_done_today), folded = !showDoneToday, onFold = { showDoneToday = !showDoneToday },
                                 doses = day?.let { d ->
                                     DayDoses(
                                         slots, d.taken,
@@ -393,6 +395,8 @@ private fun Entries(
     onShowDone: () -> Unit,
     open: (Long) -> Unit,
     toggle: (Long) -> Unit,
+    /** Hoje: one time of a task that repeats, tapped (its id, the time). */
+    toggleAt: (Long, Long) -> Unit = { id, _ -> toggle(id) },
     /** The search's photos, above what it found. */
     photos: List<Photo> = emptyList(),
     /** The groups whole, when [sections] is only some of them (a category): a drag's order goes into these. */
@@ -420,10 +424,19 @@ private fun Entries(
     val byTime = filter == Filter.TODAY && !searched
     val dayStart = Instant.ofEpochMilli(now).atZone(ZoneId.systemDefault()).toLocalDate().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
     val dayEnd = Instant.ofEpochMilli(dayStart).atZone(ZoneId.systemDefault()).toLocalDate().plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-    val times = remember(byTime, sections, doses?.slots, dayStart) {
+    // Past midnight, yesterday's last 2 hours are still Pra hoje's.
+    val timesFrom = minOf(dayStart, now - com.villamediana.novelo.ui.meds.NEAR_BACK_MS)
+    val times = remember(byTime, sections, doses?.slots, dayStart, timesFrom / 60_000) {
         if (!byTime) emptyList()
-        else moments(doses?.slots.orEmpty(), sections.firstOrNull { it.first == forToday }?.second.orEmpty().mapNotNull { e -> todayTime(e, dayStart, dayEnd)?.let { e to it } })
+        else moments(doses?.slots.orEmpty(), sections.firstOrNull { it.first == forToday }?.second.orEmpty().mapNotNull { e -> todayTime(e, timesFrom, dayEnd)?.let { e to it } })
     }
+    // In Hoje each time of a task that repeats is its own line: tapped, that time is done (or not any more).
+    val inHoje = filter == Filter.TODAY && !searched
+    fun tick(e: Entry) {
+        val at = e.remindAt
+        if (inHoje && Repeat.repeats(e) && at != null) toggleAt(e.id, at) else toggle(e.id)
+    }
+    fun key(e: Entry): Any = if (inHoje) keyOf(e) else e.id
     val focusAt = remember(times, doses?.taken, now / 60_000) { focusOf(times, doses?.taken.orEmpty(), now) }
     val showPeople = remember(doses?.slots) { doses?.slots.orEmpty().any { s -> s.meds.any { it.person != null } } }
     // Tarefas: a task held and dragged moves within its group (doing, to do, waiting); Notas: a note
@@ -501,10 +514,10 @@ private fun Entries(
                 if (label != null && label == fold && !searched) {
                     if (items.isEmpty()) return@forEach
                     item(key = "fold-$label") { FoldHeader(label, items.size, open = !folded, onClick = onFold, modifier = Modifier.animateItem()) }
-                    if (!folded) itemsIndexed(items, key = { _, e -> e.id }) { i, e ->
+                    if (!folded) itemsIndexed(items, key = { _, e -> key(e) }) { i, e ->
                         Box(Modifier.animateItem(fadeInSpec = androidx.compose.animation.core.tween(260), placementSpec = spring(dampingRatio = 0.9f, stiffness = 500f)).padding(bottom = if (i == items.lastIndex) 0.dp else GroupGap)) {
                             EntryCard(
-                                e, onClick = { open(e.id) }, onToggle = { toggle(e.id) }, showKind = filter == Filter.TODAY, inToday = filter == Filter.TODAY,
+                                e, onClick = { open(e.id) }, onToggle = { tick(e) }, showKind = filter == Filter.TODAY, inToday = filter == Filter.TODAY,
                                 shape = groupShape(i, items.size, outer = 22.dp), showCategory = filter == Filter.TODAY, modifier = Modifier.testTag("done-$i"),
                             )
                         }
@@ -520,7 +533,7 @@ private fun Entries(
                             MomentCard(
                                 m, groupShape(i, times.size, outer = 22.dp), focus = m.at == focusAt, now = now, taken = doses?.taken.orEmpty(),
                                 onDose = { id, at -> doses?.onToggle?.invoke(id, at) }, onMed = { id -> doses?.onOpen?.invoke(id) },
-                                onTask = open, onToggleTask = toggle, showPeople = showPeople, modifier = Modifier.testTag("today-time"),
+                                onTask = open, onToggleTask = { tick(it) }, showPeople = showPeople, modifier = Modifier.testTag("today-time"),
                             )
                         }
                     }
@@ -529,7 +542,7 @@ private fun Entries(
                 if (label != null && (items.isNotEmpty() || searched)) item(key = "label-$label") { SectionLabel(label, Modifier.animateItem()) }
                 else if (label == null && gapped && items.isNotEmpty()) item(key = "gap-${items.first().id}") { Spacer(Modifier.height(DAY_GAP)) }
                 // One block per group: the cards touch, only the ends are round.
-                itemsIndexed(items, key = { _, e -> e.id }) { i, e ->
+                itemsIndexed(items, key = { _, e -> key(e) }) { i, e ->
                     val shape = groupShape(i, items.size, outer = 22.dp)
                     @Composable
                     fun card(modifier: Modifier) {
@@ -538,7 +551,7 @@ private fun Entries(
                             e,
                             onClick = { open(e.id) },
                             terms = terms.orEmpty(),
-                            onToggle = { toggle(e.id) },
+                            onToggle = { tick(e) },
                             showKind = searched || filter == Filter.ALL || filter == Filter.TODAY,
                             // Where the group already says it, the card doesn't again.
                             showStatus = searched || !(filter == Filter.TODAY && label == DOING),
@@ -771,24 +784,43 @@ fun sectionsFor(filter: Filter, all: List<Entry>, showDone: Boolean, zone: ZoneI
     val open = tasks.filter { it.statusEnum != Status.DONE }
     return when (filter) {
         Filter.TODAY -> {
-            val before = open.filter { it.dueAt != null && it.dueAt < startToday }
-            val due = open.filter { (it.dueAt != null && it.dueAt in startToday until endToday) || (it.remindAt != null && it.remindAt in startToday until endToday) }
-                .filter { it !in before }
-            // By the hour, with the medicines (Miguel, 1.67, 1.69): the ones with a time from 2 hours ago on, in its order.
-            val hours = due.mapNotNull { e -> todayTime(e, startToday, endToday)?.let { e to it } }
-            val timed = hours.filter { it.second >= now - com.villamediana.novelo.ui.meds.NEAR_BACK_MS }.sortedBy { it.second }.map { it.first }
-            // Its time gone more than 2 hours ago and not done: Atrasadas (Miguel, 1.69) — when it was due by today; one
-            // that only had its reminder today, due later, stays for the day.
-            val gone = hours.map { it.first }.filter { it !in timed && (it.dueAt == null || it.dueAt < endToday) }
-            val late = (before + gone).sortedBy { it.dueAt ?: todayTime(it, startToday, endToday) ?: it.createdAt }
-            val loose = due.filter { it !in timed && it !in gone }.sortedBy { it.dueAt ?: it.createdAt }
-            val doing = open.filter { it.statusEnum == Status.DOING && it !in late && it !in due }
+            // By the hour, with the medicines (Miguel, 1.67, 1.69): the ones with a time from 2 hours ago on, in its order;
+            // its time gone more than 2 hours ago and not done: Atrasadas. A reminder that rang isn't done (1.70): the
+            // task keeps its time; one that repeats is there at each of its times, each ticked on its own.
+            val back = now - com.villamediana.novelo.ui.meds.NEAR_BACK_MS
+            val from = minOf(startToday, back)
+            val late = mutableListOf<Entry>()
+            val timed = mutableListOf<Pair<Entry, Long>>()
+            val loose = mutableListOf<Entry>()
+            for (e in open) {
+                if (Repeat.repeats(e)) {
+                    Repeat.timesOf(e, endToday, zone).forEach { (at, done) ->
+                        if (at >= back) timed += Repeat.at(e, at, done) to at
+                        else if (!done) late += Repeat.at(e, at, false)
+                    }
+                    continue
+                }
+                val hour = todayTime(e, from, endToday)
+                when {
+                    // Due a day before (past midnight: before 2 hours ago): late, whatever its reminder.
+                    e.dueAt != null && e.dueAt < from -> late += e
+                    hour != null && hour >= back -> timed += e to hour
+                    // Only its reminder was today, due later: not late, still for the day.
+                    hour != null -> if (e.dueAt == null || e.dueAt < endToday) late += e else loose += e
+                    // Its reminder rang a day before and it isn't done (nor due later): late.
+                    e.remindAt != null && e.remindAt < from && e.dueAt == null -> late += e
+                    e.dueAt != null && e.dueAt < endToday -> loose += e
+                }
+            }
+            val repeating = open.filter { Repeat.repeats(it) }.map { it.id }.toSet()
+            val placed = (late.map { it.id } + timed.map { it.first.id } + loose.map { it.id }).toSet()
+            val doing = open.filter { it.statusEnum == Status.DOING && it.id !in placed && it.id !in repeating }
             val said = all.filter { it.createdAt >= startToday && it.kindEnum != Kind.TASK }
             val doneToday = tasks.filter { it.doneAt != null && it.doneAt >= startToday }
             listOfNotNull(
-                t(R.string.section_late) to late,
-                t(R.string.section_for_today) to timed,
-                t(R.string.section_through_day) to loose,
+                t(R.string.section_late) to late.sortedBy { it.dueAt ?: it.remindAt ?: it.createdAt },
+                t(R.string.section_for_today) to timed.sortedBy { it.second }.map { it.first },
+                t(R.string.section_through_day) to loose.sortedBy { it.dueAt ?: it.createdAt },
                 DOING to doing,
                 (t(R.string.section_kept_today) to said).takeIf { SHOW_KEPT_TODAY },
                 t(R.string.section_done_today) to doneToday,
@@ -815,9 +847,15 @@ fun sectionsFor(filter: Filter, all: List<Entry>, showDone: Boolean, zone: ZoneI
     }
 }
 
-/** A task's time today: its reminder today, or its due time today (a due day without an hour has none). */
-internal fun todayTime(e: Entry, startToday: Long, endToday: Long): Long? =
-    e.remindAt?.takeIf { it in startToday until endToday } ?: e.dueAt?.takeIf { e.dueHasTime && it in startToday until endToday }
+/**
+ * A task's time today: its reminder today, or its due time today (a due day without an hour has none). [from]: the
+ * start of the day — or 2 hours ago, past midnight (yesterday's 23:00 still to tick).
+ */
+internal fun todayTime(e: Entry, from: Long, endToday: Long): Long? =
+    e.remindAt?.takeIf { it in from until endToday } ?: e.dueAt?.takeIf { e.dueHasTime && it in from until endToday }
+
+/** Hoje's line for an item: one that repeats is there once per time (its key with the time). */
+private fun keyOf(e: Entry): Any = if (Repeat.repeats(e)) "rep-${e.id}-${e.remindAt}" else e.id
 
 /**
  * Hoje › "Guardado hoje" (the notes and diary said today) is hidden for now, to keep the tab to what

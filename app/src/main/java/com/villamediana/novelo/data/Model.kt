@@ -61,6 +61,15 @@ data class Entry(
     val position: Long? = null,
     /** Tasks: the part of her life it belongs to ("Trabalho", "Casa"), chosen by the model or by her; null: none yet. */
     val category: String? = null,
+    /**
+     * The reminder time that already rang ([remindAt] once it went off): it isn't rung again, and the
+     * task keeps its time — rung isn't done (1.70; before, the reminder was cleared and the task left Hoje).
+     */
+    val rungAt: Long? = null,
+    /** A task that repeats: its times count from here (the ones before are behind it, done or let go). */
+    val occursFrom: Long? = null,
+    /** A task that repeats: its times done (JSON list of ms, from [occursFrom] on) — each time is ticked on its own. */
+    @androidx.room.ColumnInfo(defaultValue = "[]") val doneTimes: String = "[]",
 ) {
     val kindEnum: Kind get() = Kind.of(kind) ?: Kind.NOTE
     val statusEnum: Status? get() = Status.of(status)

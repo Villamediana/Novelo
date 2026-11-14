@@ -788,10 +788,15 @@ private fun BottomBar(entries: List<Entry>, onCamera: () -> Unit, onGallery: () 
 /** The bottom bar's icons: room enough for a finger, three of them beside "Hoje". */
 private val BAR_ICON = 44.dp
 
-/** Open tasks due today or late, and reminders still to come today. */
-fun todayCount(entries: List<Entry>, zone: ZoneId = ZoneId.systemDefault()): Int {
-    val end = LocalDate.now(zone).plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
-    return entries.count { e ->
-        e.kindEnum == Kind.TASK && e.statusEnum != Status.DONE && ((e.dueAt != null && e.dueAt < end) || (e.remindAt != null && e.remindAt < end))
+/** Open tasks due today or late, and reminders still to come today — a task that repeats, each of its times not done up to tonight. */
+fun todayCount(entries: List<Entry>, zone: ZoneId = ZoneId.systemDefault(), now: Long = System.currentTimeMillis()): Int {
+    val end = java.time.Instant.ofEpochMilli(now).atZone(zone).toLocalDate().plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+    return entries.sumOf { e ->
+        when {
+            e.kindEnum != Kind.TASK || e.statusEnum == Status.DONE -> 0
+            com.villamediana.novelo.remind.Repeat.repeats(e) -> com.villamediana.novelo.remind.Repeat.timesOf(e, end, zone).count { !it.second }
+            (e.dueAt != null && e.dueAt < end) || (e.remindAt != null && e.remindAt < end) -> 1
+            else -> 0
+        }
     }
 }

@@ -25,6 +25,8 @@ class NoveloApplication : Application() {
         graph.scope.launch { runCatching { graph.library.joinDayDiaries() } }
         // Medicines that began the minute they were written (before 1.64.1): from the start of that day.
         graph.scope.launch { runCatching { graph.library.fixMedStarts() } }
+        // Tasks that repeat from before 1.70: each of today's times on its own (the ones ticked today kept).
+        graph.scope.launch { runCatching { graph.library.fixRepeats() } }
         // A backup after every change in what she keeps (and the daily one besides).
         graph.scope.launch { runCatching { graph.backups.watch(graph.db) } }
         // The automatic backup, as Ajustes has it (kept when it is already scheduled).

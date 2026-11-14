@@ -77,6 +77,69 @@ class RepeatTest {
         assertEquals(Status.TODO, db.entries().get(id)!!.statusEnum)
     }
 
+    /**
+     * Each time on its own (1.70): ringing isn't doing — the time that rang stays to tick; ticked from the
+     * app (no time said) it is the last one come; Hoje ticks each by its own; one done ahead doesn't ring.
+     */
+    @Test
+    fun eachTimeIsTickedOnItsOwn() = runBlocking {
+        val three = Repeat(Repeat.DAY, time = "10:00", times = listOf("10:00", "14:00", "20:00"))
+        var clock = at(2026, 11, 14, 9, 7)
+        val lib = com.villamediana.novelo.data.Library(db, object : ReminderSync { override suspend fun sync(entryIds: List<Long>) {} }, clock = { clock })
+        val id = db.entries().insert(
+            Entry(kind = "task", title = "Comida meninos", status = "todo", remindAt = at(2026, 11, 14, 10), repeat = Repeat.write(three), occursFrom = at(2026, 11, 14, 10), createdAt = clock, updatedAt = clock),
+        )
+        fun e() = runBlocking { db.entries().get(id)!! }
+        // 10:00 and 14:00 rang (the ring goes on), none ticked: both still to do.
+        db.entries().update(e().copy(remindAt = Repeat.nextRing(e(), at(2026, 11, 14, 14), zone), rungAt = at(2026, 11, 14, 14)))
+        assertEquals(at(2026, 11, 14, 20), e().remindAt)
+        clock = at(2026, 11, 14, 14, 20)
+        assertEquals(listOf(false, false), Repeat.timesOf(e(), clock + 1, zone).map { it.second })
+        // "Feito" with no time: the last one come (14:00); the 10:00 waits for its own tick.
+        assertEquals(at(2026, 11, 14, 14), Repeat.current(e(), clock, zone))
+        lib.setStatus(id, Status.DONE, zone)
+        assertEquals(setOf(at(2026, 11, 14, 14)), Repeat.doneOf(e()))
+        assertEquals(Status.TODO, e().statusEnum)
+        assertEquals(at(2026, 11, 14, 10), Repeat.come(e().copy(doneTimes = "[]"), at(2026, 11, 14, 11), zone))
+        lib.toggleTime(id, at(2026, 11, 14, 10), zone)
+        assertEquals(setOf(at(2026, 11, 14, 10), at(2026, 11, 14, 14)), Repeat.doneOf(e()))
+        // Tapped again: not done any more.
+        lib.toggleTime(id, at(2026, 11, 14, 10), zone)
+        assertEquals(setOf(at(2026, 11, 14, 14)), Repeat.doneOf(e()))
+        lib.toggleTime(id, at(2026, 11, 14, 10), zone)
+        // 19:50, the 20:00 done ahead: it doesn't ring; the next ring is tomorrow's 10:00.
+        clock = at(2026, 11, 14, 19, 50)
+        lib.setStatus(id, Status.DONE, zone)
+        assertEquals(at(2026, 11, 15, 10), e().remindAt)
+        assertEquals(at(2026, 11, 15, 10), Repeat.nextRing(e(), clock, zone))
+        // Two days later, ticking: the ones done long ago leave the list; it counts from the first not done.
+        clock = at(2026, 11, 16, 10, 5)
+        lib.toggleTime(id, at(2026, 11, 16, 10), zone)
+        assertEquals(at(2026, 11, 15, 10), e().occursFrom)
+        assertEquals(listOf(at(2026, 11, 15, 10), at(2026, 11, 15, 14), at(2026, 11, 15, 20)), Repeat.timesOf(e(), at(2026, 11, 16, 0), zone).filter { !it.second }.map { it.first })
+    }
+
+    /** Before 1.70 a task that repeats had no times kept: on opening, today's count from today, today's ticks on the nearest time. */
+    @Test
+    fun theOnesFromBeforeAreFixed() = runBlocking {
+        val three = Repeat(Repeat.DAY, time = "10:00", times = listOf("10:00", "14:00", "20:00"))
+        val now = at(2026, 11, 14, 20, 22)
+        val lib = com.villamediana.novelo.data.Library(db, object : ReminderSync { override suspend fun sync(entryIds: List<Long>) {} }, clock = { now })
+        val id = db.entries().insert(
+            Entry(kind = "task", title = "Comida meninos", status = "todo", remindAt = at(2026, 11, 15, 10), repeat = Repeat.write(three), createdAt = at(2026, 11, 14, 9, 7), updatedAt = now),
+        )
+        // Ticked at 10:12 and 14:31 (the old way: the reminder went on).
+        db.progress().insert(com.villamediana.novelo.data.Progress(entryId = id, at = at(2026, 11, 14, 10, 12), text = "", status = "done"))
+        db.progress().insert(com.villamediana.novelo.data.Progress(entryId = id, at = at(2026, 11, 14, 14, 31), text = "", status = "done"))
+        db.progress().insert(com.villamediana.novelo.data.Progress(entryId = id, at = at(2026, 11, 13, 20, 1), text = "", status = "done"))
+        lib.fixRepeats(zone)
+        val e = db.entries().get(id)!!
+        assertEquals(at(2026, 11, 14, 10), e.occursFrom)
+        assertEquals(setOf(at(2026, 11, 14, 10), at(2026, 11, 14, 14)), Repeat.doneOf(e))
+        assertEquals(at(2026, 11, 14, 20), Repeat.come(e, now, zone))
+        assertEquals(at(2026, 11, 15, 10), e.remindAt)
+    }
+
     @Test
     fun saidInWords() {
         assertEquals("todo dia às 21:00", Repeat(Repeat.DAY, time = "21:00").describe())

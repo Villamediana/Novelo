@@ -95,7 +95,7 @@ internal fun MomentCard(
     onDose: (Long, Long) -> Unit,
     onMed: (Long) -> Unit,
     onTask: (Long) -> Unit,
-    onToggleTask: (Long) -> Unit,
+    onToggleTask: (Entry) -> Unit,
     showPeople: Boolean,
     modifier: Modifier = Modifier,
 ) {
@@ -121,7 +121,7 @@ internal fun MomentCard(
         }
         Column(Modifier.weight(1f)) {
             moment.meds.forEach { m -> DoseRow(m, moment.at, (m.id to moment.at) in taken, onDose, onMed, showPeople) }
-            moment.tasks.forEach { e -> TaskRow(e, onOpen = { onTask(e.id) }, onToggle = { onToggleTask(e.id) }) }
+            moment.tasks.forEach { e -> TaskRow(e, onOpen = { onTask(e.id) }, onToggle = { onToggleTask(e) }) }
         }
     }
 }

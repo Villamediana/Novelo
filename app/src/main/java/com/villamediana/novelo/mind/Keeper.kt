@@ -98,6 +98,8 @@ class Keeper(
                 dueHasTime = due?.second ?: false,
                 remindAt = remindAt,
                 repeat = repeat,
+                // A task that repeats: its times count from the first one.
+                occursFrom = remindAt.takeIf { repeat != null && kind == Kind.TASK },
                 checkInAt = if (kind == Kind.TASK) Brain.remindTime(item.checkInAt, z)?.takeIf { it > now } else null,
                 sensitive = item.sensitive,
                 createdAt = now,
@@ -147,8 +149,14 @@ class Keeper(
             Brain.remindTime(change.checkInAt, z)?.takeIf { it > now }?.let { e = e.copy(checkInAt = it) }
             // It comes back from now on (from its reminder, or from now), or not any more.
             change.repeat?.let { ask ->
-                if (ask.every.trim().lowercase() in STOP) e = e.copy(repeat = null)
-                else repeating(ask, e.remindAt?.takeIf { it > now }, now, z).let { (r, at) -> if (r != null) e = e.copy(repeat = r, remindAt = at) }
+                if (ask.every.trim().lowercase() in STOP) e = e.copy(repeat = null, occursFrom = null, doneTimes = "[]")
+                else repeating(ask, e.remindAt?.takeIf { it > now }, now, z).let { (r, at) ->
+                    if (r != null) {
+                        // Another rule: its times count from its first one (the same one said again keeps the times it has).
+                        val same = r == old.repeat && old.occursFrom != null
+                        e = e.copy(repeat = r, remindAt = at, occursFrom = if (same || e.kindEnum != Kind.TASK) e.occursFrom else at, doneTimes = if (same) e.doneTimes else "[]")
+                    }
+                }
             }
             // Done: nothing left to ask about — or, when it repeats, this time is done and it comes back for the next.
             if (e.statusEnum == Status.DONE && old.statusEnum != Status.DONE && com.villamediana.novelo.remind.Repeat.read(e.repeat) != null) {

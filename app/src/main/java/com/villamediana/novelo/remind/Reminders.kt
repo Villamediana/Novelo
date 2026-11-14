@@ -47,7 +47,8 @@ class Reminders(private val context: Context, private val db: NoveloDatabase) : 
     override suspend fun sync(entryIds: List<Long>) {
         entryIds.forEach { id ->
             val e = db.entries().get(id)
-            arm(id, REMIND, e?.remindAt?.takeIf { it > System.currentTimeMillis() })
+            // One that already rang keeps its time (it isn't done) but doesn't ring again.
+            arm(id, REMIND, e?.remindAt?.takeIf { it > System.currentTimeMillis() && it != e.rungAt })
             arm(id, CHECK_IN, e?.checkInAt?.takeIf { it > System.currentTimeMillis() && e.isOpenTask })
         }
     }
@@ -57,7 +58,7 @@ class Reminders(private val context: Context, private val db: NoveloDatabase) : 
      * the phone was off is armed too: AlarmManager fires it right away, late but not lost.
      */
     suspend fun syncAll() {
-        db.entries().withReminder().forEach { arm(it.id, REMIND, it.remindAt) }
+        db.entries().withReminder().forEach { arm(it.id, REMIND, it.remindAt?.takeIf { at -> at != it.rungAt }) }
         db.entries().withCheckIn().forEach { arm(it.id, CHECK_IN, it.checkInAt) }
         meds.sync()
     }
@@ -115,12 +116,19 @@ class ReminderReceiver : BroadcastReceiver() {
                 when (intent.action) {
                     Reminders.ACTION_FIRE -> fire(context, db, e, kind, intent.getLongExtra(Reminders.EXTRA_AT, 0))
                     Reminders.ACTION_DONE -> {
-                        // The same as ticking it in the app (one that repeats comes back for the next time).
-                        graph.library.setStatus(e.id, Status.DONE)
+                        // The same as ticking it in the app — one that repeats: the time that rang (put off: the one that counts now).
+                        val at = intent.getLongExtra(Reminders.EXTRA_AT, 0L)
+                        if (Repeat.repeats(e)) {
+                            val zone = java.time.ZoneId.systemDefault()
+                            val time = at.takeIf { it != 0L && Repeat.isTime(e, it, zone) } ?: Repeat.current(e, System.currentTimeMillis(), zone)
+                            if (time != null) graph.library.setTime(e.id, time, done = true)
+                        } else graph.library.setStatus(e.id, Status.DONE)
                         NotificationManagerCompat.from(context).cancel(Reminders.notificationId(e.id, kind))
                     }
                     Reminders.ACTION_SNOOZE -> {
-                        val at = System.currentTimeMillis() + 60 * 60_000L
+                        // An hour later — one that repeats rings at its next time if that comes first.
+                        val later = System.currentTimeMillis() + 60 * 60_000L
+                        val at = if (kind == Reminders.REMIND) minOf(later, Repeat.nextRing(e, System.currentTimeMillis(), java.time.ZoneId.systemDefault()) ?: later) else later
                         db.entries().update(if (kind == Reminders.CHECK_IN) e.copy(checkInAt = at) else e.copy(remindAt = at))
                         graph.reminders.sync(listOf(e.id))
                         NotificationManagerCompat.from(context).cancel(Reminders.notificationId(e.id, kind))
@@ -138,17 +146,21 @@ class ReminderReceiver : BroadcastReceiver() {
         if (current == null || (at != 0L && current != at)) return
         if (kind == Reminders.CHECK_IN && !e.isOpenTask) return
         if (kind == Reminders.CHECK_IN) db.entries().update(e.copy(checkInAt = null)) // asked once; the answer may set the next
-        else {
-            // One that repeats is armed again for its next time; any other is done reminding.
-            val next = Repeat.read(e.repeat)?.next(maxOf(current, System.currentTimeMillis()), java.time.ZoneId.systemDefault())
-            db.entries().update(e.copy(remindAt = next))
+        else if (Repeat.read(e.repeat) != null) {
+            // One that repeats rings next at its next time not done. The time that rang stays to be ticked (Hoje,
+            // then Atrasadas): rung isn't done (1.70 — before, it left Hoje for the next one).
+            val next = Repeat.nextRing(e, maxOf(current, System.currentTimeMillis()), java.time.ZoneId.systemDefault())
+            db.entries().update(e.copy(remindAt = next, rungAt = current))
             if (next != null) NoveloApplication.graph.reminders.sync(listOf(e.id))
+        } else {
+            // Any other keeps its time (the task stays in Hoje, late when not done) and doesn't ring again.
+            db.entries().update(e.copy(rungAt = current))
         }
-        notify(context, e, kind)
+        notify(context, e, kind, current)
     }
 
     @SuppressLint("MissingPermission")
-    private fun notify(context: Context, e: Entry, kind: Int) {
+    private fun notify(context: Context, e: Entry, kind: Int, at: Long) {
         val allowed = Build.VERSION.SDK_INT < 33 ||
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
         if (!allowed) return
@@ -185,15 +197,16 @@ class ReminderReceiver : BroadcastReceiver() {
             )
             b.addAction(0, t(R.string.notif_talk), talk)
         }
-        if (e.kindEnum == Kind.TASK) b.addAction(0, t(R.string.notif_done), action(context, Reminders.ACTION_DONE, e.id, kind))
-        b.addAction(0, t(R.string.notif_snooze), action(context, Reminders.ACTION_SNOOZE, e.id, kind))
+        if (e.kindEnum == Kind.TASK) b.addAction(0, t(R.string.notif_done), action(context, Reminders.ACTION_DONE, e.id, kind, at))
+        b.addAction(0, t(R.string.notif_snooze), action(context, Reminders.ACTION_SNOOZE, e.id, kind, at))
         NotificationManagerCompat.from(context).notify(id, b.build())
     }
 
-    private fun action(context: Context, action: String, entryId: Long, kind: Int): PendingIntent {
+    private fun action(context: Context, action: String, entryId: Long, kind: Int, at: Long): PendingIntent {
         val intent = Intent(context, ReminderReceiver::class.java).setAction(action)
             .putExtra(Reminders.EXTRA_ENTRY, entryId)
             .putExtra(Reminders.EXTRA_KIND, kind)
+            .putExtra(Reminders.EXTRA_AT, at)
         val code = Reminders.requestCode(entryId, kind) * 4 + (if (action == Reminders.ACTION_DONE) 1 else 2)
         return PendingIntent.getBroadcast(context, code, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
     }
