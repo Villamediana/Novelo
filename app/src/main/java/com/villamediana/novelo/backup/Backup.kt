@@ -98,6 +98,7 @@ class Backup(
             }
             put(INSIDE, json.encodeToString(Snapshot.serializer(), snap).toByteArray(Charsets.UTF_8))
             Readable.files(snap, zone()).toSortedMap().forEach { (path, text) -> put(path, text.toByteArray(Charsets.UTF_8)) }
+            Readable.meds(snap, zone())?.let { put(Readable.MEDS, it.toByteArray(Charsets.UTF_8)) }
             val files = snap.photos.mapNotNull { (id, rel) -> byId[id]?.imagePath?.let { it to rel } } +
                 snap.sounds.mapNotNull { (id, rel) -> byId[id]?.audioPath?.let { it to rel } } +
                 snap.files.mapNotNull { (id, rel) -> byId[id]?.filePath?.let { it to rel } }

@@ -288,6 +288,9 @@ class BackupTest {
         db.meds().delete(med)
         db.meds().insert(com.villamediana.novelo.data.Med(name = "Depois", startsAt = now, createdAt = now, updatedAt = now))
         b.restore(root, Backup.FILE)
+        // In the open too, inside the file.
+        val readable = text(Readable.MEDS)
+        assertTrue(readable, readable.contains("## Amoxicilina — Cooper") && readable.contains("- Horários: 08:00") && readable.contains("- Doses dadas: 1"))
         assertEquals(listOf("Amoxicilina" to "Cooper"), db.meds().all().map { it.name to it.person })
         assertEquals(listOf(med), db.meds().allTaken().map { it.medId })
     }

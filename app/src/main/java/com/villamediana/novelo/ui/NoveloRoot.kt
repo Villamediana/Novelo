@@ -54,7 +54,11 @@ fun NoveloRoot(ask: Ask?, onAskHandled: () -> Unit) {
     when (ask) {
         is Ask.OpenEntry -> LaunchedEffect(ask) { nav.home(); nav.go(Screen.Entry(ask.id)); onAskHandled() }
         is Ask.TalkAbout -> { LaunchedEffect(ask) { nav.home() }; talk = ask.id }
-        Ask.OpenMeds -> LaunchedEffect(ask) { nav.home(); nav.go(Screen.Library(Filter.MEDS)); onAskHandled() }
+        // A medicine's reminder tapped: Hoje, where its doses are ticked (the Remédios list when she hid Hoje).
+        Ask.OpenMeds -> LaunchedEffect(ask) {
+            val shown = com.villamediana.novelo.ui.library.TabOrder.visible(graph.settings.current())
+            nav.home(); nav.go(Screen.Library(if (Filter.TODAY in shown) Filter.TODAY else Filter.MEDS)); onAskHandled()
+        }
         null -> Unit
     }
 
