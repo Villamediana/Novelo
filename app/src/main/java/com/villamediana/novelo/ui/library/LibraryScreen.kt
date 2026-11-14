@@ -792,11 +792,14 @@ fun sectionsFor(filter: Filter, all: List<Entry>, showDone: Boolean, zone: ZoneI
             val late = mutableListOf<Entry>()
             val timed = mutableListOf<Pair<Entry, Long>>()
             val loose = mutableListOf<Entry>()
+            // A task that repeats, its times done today and gone from their card: Feitas hoje, each with its hour.
+            val doneTimes = mutableListOf<Pair<Entry, Long>>()
             for (e in open) {
                 if (Repeat.repeats(e)) {
                     Repeat.timesOf(e, endToday, zone).forEach { (at, done) ->
                         if (at >= back) timed += Repeat.at(e, at, done) to at
                         else if (!done) late += Repeat.at(e, at, false)
+                        else if (at >= startToday) doneTimes += Repeat.at(e, at, true) to at
                     }
                     continue
                 }
@@ -812,11 +815,18 @@ fun sectionsFor(filter: Filter, all: List<Entry>, showDone: Boolean, zone: ZoneI
                     e.dueAt != null && e.dueAt < endToday -> loose += e
                 }
             }
+            // Done with its hour from 2 hours ago on: still in its card, struck (as the medicines), then Feitas hoje (1.71).
+            val struck = tasks.filter { it.statusEnum == Status.DONE && !Repeat.repeats(it) && it.doneAt != null && it.doneAt >= startToday }
+                .mapNotNull { e -> todayTime(e, from, endToday)?.takeIf { it >= back }?.let { e to it } }
+            timed += struck
             val repeating = open.filter { Repeat.repeats(it) }.map { it.id }.toSet()
             val placed = (late.map { it.id } + timed.map { it.first.id } + loose.map { it.id }).toSet()
             val doing = open.filter { it.statusEnum == Status.DOING && it.id !in placed && it.id !in repeating }
             val said = all.filter { it.createdAt >= startToday && it.kindEnum != Kind.TASK }
-            val doneToday = tasks.filter { it.doneAt != null && it.doneAt >= startToday }
+            val inCards = struck.map { it.first.id }.toSet()
+            // The last done first (a time of one that repeats by its hour).
+            val doneToday = (tasks.filter { it.doneAt != null && it.doneAt >= startToday && it.id !in inCards }.map { it to it.doneAt!! } + doneTimes)
+                .sortedByDescending { it.second }.map { it.first }
             listOfNotNull(
                 t(R.string.section_late) to late.sortedBy { it.dueAt ?: it.remindAt ?: it.createdAt },
                 t(R.string.section_for_today) to timed.sortedBy { it.second }.map { it.first },

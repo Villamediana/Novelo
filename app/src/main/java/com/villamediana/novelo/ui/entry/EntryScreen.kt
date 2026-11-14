@@ -215,13 +215,23 @@ fun EntryScreen(nav: Nav, id: Long) {
             // it stands (doing, waiting) isn't set by hand here (1.60): no micromanaging.
             if (kind == Kind.TASK) {
                 Spacer(Modifier.height(14.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                // One that repeats: today's times, each ticked on its own (1.71) — a "Feito" there never stayed lit.
+                val times = rememberTaskTimes(e)
+                androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     CategoryLine(e)
-                    // Done or not, here too (the circle in the lists does the same).
-                    com.villamediana.novelo.ui.components.Pill(
-                        t(R.string.status_done), selected = e.statusEnum == Status.DONE,
-                        onClick = { scope.launch { lib.toggleDone(e.id) } }, modifier = Modifier.testTag("entry-done"),
-                    )
+                    if (times.isEmpty()) {
+                        // Done or not, here too (the circle in the lists does the same).
+                        com.villamediana.novelo.ui.components.Pill(
+                            t(R.string.status_done), selected = e.statusEnum == Status.DONE,
+                            onClick = { scope.launch { lib.toggleDone(e.id) } }, modifier = Modifier.testTag("entry-done"),
+                        )
+                    } else times.forEach { (at, label, done) ->
+                        com.villamediana.novelo.ui.components.Pill(
+                            (if (done) "✓ " else "") + label, selected = done,
+                            onClick = { scope.launch { lib.toggleTime(e.id, at) } },
+                            modifier = Modifier.semantics { contentDescription = label + " · " + t(if (done) R.string.status_done else R.string.status_todo) }.testTag("entry-time-$at"),
+                        )
+                    }
                 }
             }
 
@@ -314,6 +324,28 @@ fun EntryScreen(nav: Nav, id: Long) {
         }
     }
 }
+
+/**
+ * A task that repeats, its times to tick on its page: today's (done or not) and, before them, the last
+ * ones of days before still not done (said with their day). Empty: it doesn't repeat, or has none today.
+ */
+@Composable
+private fun rememberTaskTimes(e: Entry): List<Triple<Long, String, Boolean>> {
+    val now = com.villamediana.novelo.ui.meds.rememberNow()
+    val zone = ZoneId.systemDefault()
+    val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
+    return remember(e, today) {
+        if (!com.villamediana.novelo.remind.Repeat.repeats(e) || e.statusEnum == Status.DONE) return@remember emptyList()
+        val start = today.atStartOfDay(zone).toInstant().toEpochMilli()
+        val end = today.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        val all = com.villamediana.novelo.remind.Repeat.timesOf(e, end, zone)
+        val before = all.filter { it.first < start && !it.second }.takeLast(MISSED_SHOWN).map { (at, _) -> Triple(at, Dates.dayTime(at, zone), false) }
+        before + all.filter { it.first >= start }.map { (at, done) -> Triple(at, Dates.time(at, zone), done) }
+    }
+}
+
+/** The times of days before not done shown on a task's page (the rest are in Hoje › Atrasadas). */
+private const val MISSED_SHOWN = 3
 
 @Composable
 private fun StepsBlock(e: Entry, focusNew: Boolean, onToggle: (Int) -> Unit, onAdd: (String) -> Unit, onRemove: (Int) -> Unit, onMove: (Int, Int) -> Unit = { _, _ -> }, onEdit: (Int, String) -> Unit = { _, _ -> }) {

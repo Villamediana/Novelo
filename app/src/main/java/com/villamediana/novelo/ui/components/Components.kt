@@ -506,7 +506,7 @@ fun meta(
     // as if that one were done. (In Hoje each time is its own card already.)
     val come = if (inToday) null else com.villamediana.novelo.remind.Repeat.takeIf { it.repeats(e) }?.come(e, now, zone)
     if (come != null) add(Dates.day(come, zone, today) + " · " + Dates.time(come, zone) to true)
-    if (come == null) e.remindAt?.takeIf { it > now && !(e.dueHasTime && it == e.dueAt) && !(timeShown && dayOf(it) == today) }?.let { r ->
+    if (come == null && status != Status.DONE) e.remindAt?.takeIf { it > now && !(e.dueHasTime && it == e.dueAt) && !(timeShown && dayOf(it) == today) }?.let { r ->
         val day = dayOf(r)
         val sameDay = e.dueAt?.let { dayOf(it) == day } == true || (inToday && day == today)
         add(t(R.string.reminder_at, if (sameDay) Dates.time(r, zone) else Dates.day(r, zone, today) + " · " + Dates.time(r, zone)) to false)

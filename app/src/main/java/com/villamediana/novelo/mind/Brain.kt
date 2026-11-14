@@ -511,7 +511,11 @@ Os campos que existem:
         e.category?.takeIf { e.kindEnum == Kind.TASK }?.let { append(" · categoria ").append(it) }
         e.dueAt?.let { append(" · prazo ").append(if (e.dueHasTime) stamp(it, zone) else day(it, zone)) }
         e.doneAt?.let { append(" · feito em ").append(day(it, zone)) }
-        e.remindAt?.takeIf { it > now }?.let { append(" · lembrete ").append(stamp(it, zone)) }
+        if (e.statusEnum != Status.DONE) e.remindAt?.let { r ->
+            // A reminder that rang isn't done: its hour stays said.
+            if (r > now) append(" · lembrete ").append(stamp(r, zone))
+            else if (e.isOpenTask && com.villamediana.novelo.remind.Repeat.read(e.repeat) == null) append(" · lembrete já tocou ").append(stamp(r, zone))
+        }
         com.villamediana.novelo.remind.Repeat.read(e.repeat)?.let { r -> append(" · repete ").append(r.every).append(if (r.every == "week") r.days.joinToString(",", "[", "]") else "").append(' ').append(r.allTimes.joinToString(",") { "%02d:%02d".format(it.hour, it.minute) }) }
         // Its times gone and not done yet (the last few): "feito" ticks the last one come.
         if (e.isOpenTask) com.villamediana.novelo.remind.Repeat.timesOf(e, now + 1, zone).filter { !it.second }.takeLast(3).takeIf { it.isNotEmpty() }?.let { left ->

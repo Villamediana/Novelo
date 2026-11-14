@@ -162,7 +162,8 @@ class RepeatTest {
         // One that doesn't repeat is just done.
         val once = Repeat.done(e.copy(repeat = null), wed10, zone)
         assertEquals(Status.DONE, once.statusEnum)
-        assertNull(once.remindAt)
+        // Its hour kept, quiet (it doesn't ring).
+        assertEquals(once.remindAt, once.rungAt)
     }
 
     @Test

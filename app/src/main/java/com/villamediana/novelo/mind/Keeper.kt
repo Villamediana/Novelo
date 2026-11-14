@@ -161,7 +161,13 @@ class Keeper(
             // Done: nothing left to ask about — or, when it repeats, this time is done and it comes back for the next.
             if (e.statusEnum == Status.DONE && old.statusEnum != Status.DONE && com.villamediana.novelo.remind.Repeat.read(e.repeat) != null) {
                 e = com.villamediana.novelo.remind.Repeat.done(e, now, z)
-            } else if (e.statusEnum == Status.DONE) e = e.copy(checkInAt = null, remindAt = e.remindAt?.takeIf { old.statusEnum == Status.DONE })
+            } else if (e.statusEnum == Status.DONE) {
+                // Done keeps its hour (struck in Hoje a while) and never rings.
+                e = e.copy(checkInAt = null, rungAt = if (old.statusEnum == Status.DONE) e.rungAt else e.remindAt)
+            } else if (old.statusEnum == Status.DONE && e.remindAt != null && e.remindAt > now && e.rungAt == e.remindAt) {
+                // Open again: its reminder still to come rings again.
+                e = e.copy(rungAt = null)
+            }
             val changed = e != old
             // Photos or files joined to it are news too: it comes up as changed now.
             val joins = change.photos.isNotEmpty() || change.files.isNotEmpty()
