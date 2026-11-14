@@ -177,7 +177,9 @@ class Keeper(
             }
             tieTopics(e.id, change.entities)
             if (changed || joins) {
-                outcomes += outcome(e.id, if (e.statusEnum == Status.DONE && old.statusEnum != Status.DONE) Outcome.DONE else Outcome.UPDATED, change.photos, change.files)
+                // Said done: "Feito" — one that repeats too (it is open again for its next time, but this one was done).
+                val saidDone = newStatus == Status.DONE && old.statusEnum != Status.DONE
+                outcomes += outcome(e.id, if (saidDone || (e.statusEnum == Status.DONE && old.statusEnum != Status.DONE)) Outcome.DONE else Outcome.UPDATED, change.photos, change.files)
                 if (e.remindAt != old.remindAt || e.checkInAt != old.checkInAt) touched += e.id
             }
         }

@@ -180,13 +180,15 @@ class ReminderReceiver : BroadcastReceiver() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val checkIn = kind == Reminders.CHECK_IN
-        val text = when {
+        val said = when {
             checkIn -> e.title
             e.sensitive -> t(R.string.notif_sensitive)
             e.body.isNotBlank() -> e.body.take(160)
-            e.dueAt != null -> DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(e.dueAt))
+            e.dueAt != null && !Repeat.repeats(e) -> DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(e.dueAt))
             else -> ""
         }
+        // One that repeats says which of its times this is ("20:00 · Oferecer alimentação…").
+        val text = if (!checkIn && Repeat.repeats(e) && at > 0) listOf(com.villamediana.novelo.ui.components.Dates.time(at), said).filter { it.isNotBlank() }.joinToString(" · ") else said
         val b = NotificationCompat.Builder(context, if (checkIn) Notifications.CHANNEL_CHECKIN else Notifications.CHANNEL_REMIND)
             .setSmallIcon(R.drawable.ic_notification)
             .setColor(ContextCompat.getColor(context, R.color.accent))

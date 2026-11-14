@@ -175,7 +175,9 @@ class RepeatTest {
         assertEquals(Repeat(Repeat.WEEK, listOf(1, 3, 5), "18:00"), Repeat.read(e.repeat))
         assertEquals(at(2026, 11, 11, 18), e.remindAt)
         // Done (said): it comes back on Friday.
-        keeper.apply(Brain.parse("""{"update":[{"id":$id,"status":"done"}]}""")!!, null)
+        val said = keeper.apply(Brain.parse("""{"update":[{"id":$id,"status":"done"}]}""")!!, null)
+        // The main screen says "Feito" (not "Atualizado"), though it is open again for Friday.
+        assertEquals(com.villamediana.novelo.data.Outcome.DONE, said.outcomes.single().action)
         val done = db.entries().get(id)!!
         assertEquals(Status.TODO, done.statusEnum)
         assertEquals(at(2026, 11, 13, 18), done.remindAt)
