@@ -602,6 +602,16 @@ pras outras telas passou a seguir 70% do dedo (`SWIPE_FOLLOW = 0.7f`).
   do começo — o começo recua pra elas aparecerem); de tantas em tantas horas dado fora do horário, o modelo manda os
   `times` novos a partir dali. O contexto diz "doses: X de Y dadas".
 
+## Revisão geral (1.68.0)
+
+- Tarefas: categoria com o nome de um grupo ("Feitas", "Sem categoria") continua no seu grupo (marca invisível no
+  rótulo; antes dobrava a chave da lista). Dentro da tarefa, a pílula "Feita" marca/desmarca.
+- Alarmes rearmados também quando o relógio ou o fuso muda (`RearmReceiver`: TIME_SET, TIMEZONE_CHANGED).
+- Hoje: logo depois da meia-noite as doses do fim da noite de ontem seguem por perto (`Today.lastNight`). O "Hoje"
+  da Home conta também as doses pendentes das últimas 2 h (`dosesDue`). A busca acha remédios (`medsFound`).
+- Remédios: "Primeira dose" mostra a hora em que começou; os toques ¼ ½ 1 2 só pra dose em unidades. O cartão de
+  "falta quem vê" não diz "falta pouco pra começar" (o botão não está travado).
+
 ## Hoje por hora (1.67.0)
 
 - No Hoje, as tarefas de hoje com hora (o lembrete de hoje, ou o prazo com hora — `todayTime`) ficam em "Pra hoje" em

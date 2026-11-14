@@ -90,7 +90,14 @@ fun rememberNow(): Long {
 }
 
 /** Today's medicines (their times, each to tick) and the times taken, kept fresh. */
-class Today(val meds: List<Med>, val slots: List<Doses.Slot>, val taken: Set<Pair<Long, Long>>)
+class Today(
+    val meds: List<Med>,
+    val slots: List<Doses.Slot>,
+    /** Every dose given (medicine to its time), of any day. */
+    val taken: Set<Pair<Long, Long>>,
+    /** In the first hours of the day: yesterday's times (the ones of late last night are still near). */
+    val lastNight: List<Doses.Slot> = emptyList(),
+)
 
 @Composable
 fun rememberToday(now: Long, zone: ZoneId = ZoneId.systemDefault()): Today? {
@@ -101,8 +108,11 @@ fun rememberToday(now: Long, zone: ZoneId = ZoneId.systemDefault()): Today? {
     val day = DayDiary.bounds(now, zone)
     val list = meds ?: return null
     val taken = all ?: return null
-    val slots = remember(list, day.first) { Doses.day(list.filter { it.name.isNotBlank() }, Doses.dayOf(now, zone), zone) }
-    return Today(list, slots, remember(taken, day.first) { taken.filter { it.at in day }.map { it.medId to it.at }.toSet() })
+    val named = remember(list) { list.filter { it.name.isNotBlank() } }
+    val slots = remember(named, day.first) { Doses.day(named, Doses.dayOf(now, zone), zone) }
+    val early = now - day.first < NEAR_BACK_MS
+    val lastNight = remember(named, day.first, early) { if (early) Doses.day(named, Doses.dayOf(now, zone).minusDays(1), zone) else emptyList() }
+    return Today(list, slots, remember(taken) { taken.map { it.medId to it.at }.toSet() }, lastNight)
 }
 
 /**
@@ -147,7 +157,8 @@ fun MedsPage(onOpen: (Long) -> Unit, empty: @Composable () -> Unit) {
             // In use: one group, or one per person (her first) when there are more and none is chosen.
             val groups = if (people.size > 1 && chosen == null) people.map { p -> (p ?: t(R.string.med_me)) to inUse.filter { it.person == p } }.filter { it.second.isNotEmpty() }
             else listOf(t(R.string.med_in_use) to inUse).filter { it.second.isNotEmpty() }
-            groups.forEach { (label, list) -> medGroup(label, list, now, onOpen, showPerson = false, takenBy = takenBy) }
+            // (Each group's key is its place: a person called like another group's label is still her own group.)
+            groups.forEachIndexed { g, (label, list) -> medGroup("group-$g", label, list, now, onOpen, showPerson = false, takenBy = takenBy) }
             if (ended.isNotEmpty()) {
                 item(key = "ended-toggle") {
                     Text(
@@ -157,15 +168,15 @@ fun MedsPage(onOpen: (Long) -> Unit, empty: @Composable () -> Unit) {
                         modifier = Modifier.animateItem().padding(top = 10.dp).clip(CircleShape).clickable { showEnded = !showEnded }.padding(horizontal = 12.dp, vertical = 8.dp),
                     )
                 }
-                if (showEnded) medGroup(t(R.string.med_ended), ended.sortedByDescending { it.endsAt }, now, onOpen, showPerson = people.size > 1, faded = true, takenBy = takenBy)
+                if (showEnded) medGroup("ended", t(R.string.med_ended), ended.sortedByDescending { it.endsAt }, now, onOpen, showPerson = people.size > 1, faded = true, takenBy = takenBy)
             }
         }
     }
 }
 
 /** A group of medicine cards under its label, touching like the tasks. */
-private fun LazyListScope.medGroup(label: String, list: List<Med>, now: Long, onOpen: (Long) -> Unit, showPerson: Boolean, faded: Boolean = false, takenBy: Map<Long, Set<Long>> = emptyMap()) {
-    item(key = "label-$label-$faded") { SectionLabel(label, Modifier.animateItem()) }
+private fun LazyListScope.medGroup(key: String, label: String, list: List<Med>, now: Long, onOpen: (Long) -> Unit, showPerson: Boolean, faded: Boolean = false, takenBy: Map<Long, Set<Long>> = emptyMap()) {
+    item(key = "label-$key") { SectionLabel(label, Modifier.animateItem()) }
     itemsIndexed(list, key = { _, m -> "med-${m.id}" }) { i, m ->
         Box(Modifier.animateItem().padding(bottom = if (i == list.lastIndex) 8.dp else GroupGap)) {
             MedCard(m, now, onClick = { onOpen(m.id) }, shape = groupShape(i, list.size), showPerson = showPerson, faded = faded, taken = takenBy[m.id].orEmpty(), modifier = Modifier.testTag("med-$i"))
@@ -173,8 +184,27 @@ private fun LazyListScope.medGroup(label: String, list: List<Med>, now: Long, on
     }
 }
 
+/** How far back a time is still near (Hoje shows it, to tick one forgotten). */
+const val NEAR_BACK_MS = 2 * 60 * 60_000L
+
+/** The medicines the search finds: every word of [query] in its name, who takes it, how, or its dose (no case, no accents). */
+fun medsFound(meds: List<Med>, query: String): List<Med> {
+    val words = Categories.fold(query).split(Regex("\\s+")).filter { it.length >= 2 }
+    if (words.isEmpty()) return emptyList()
+    return meds.filter { m ->
+        val text = Categories.fold(listOfNotNull(m.name, m.person, m.notes, m.strength, m.dose).joinToString(" "))
+        m.name.isNotBlank() && words.all { it in text }
+    }
+}
+
+/** How many doses are due now and not ticked (the last [NEAR_BACK_MS], up to now): what the main screen's "Hoje" counts. */
+fun dosesDue(meds: List<Med>, taken: List<com.villamediana.novelo.data.MedTaken>, now: Long, zone: ZoneId = ZoneId.systemDefault()): Int {
+    val done = taken.filter { it.at >= now - NEAR_BACK_MS }.map { it.medId to it.at }.toSet()
+    return meds.filter { it.name.isNotBlank() }.sumOf { m -> Doses.slots(m, now - NEAR_BACK_MS, now, zone).count { (m.id to it) !in done } }
+}
+
 /** Hoje's medicines: the times of the last [back] (taken or not) and the next one to come. */
-fun nearTimes(slots: List<Doses.Slot>, now: Long, back: Long = 2 * 60 * 60_000L): List<Doses.Slot> {
+fun nearTimes(slots: List<Doses.Slot>, now: Long, back: Long = NEAR_BACK_MS): List<Doses.Slot> {
     val gone = slots.filter { it.at in (now - back)..now }
     val next = slots.firstOrNull { it.at > now }
     return gone + listOfNotNull(next)
