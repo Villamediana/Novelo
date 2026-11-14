@@ -64,6 +64,8 @@ class TodayTimesTest {
         val afternoon = sectionsFor(Filter.TODAY, listOf(food), showDone = false, zone = zone, now = now).toMap()
         assertEquals(listOf(at(today, 14), at(today, 20)), afternoon["Pra hoje"]!!.map { it.remindAt })
         assertEquals(emptyList<Long>(), afternoon["Atrasadas"]!!.map { it.id })
+        // …it is in Feitas hoje, with its hour.
+        assertEquals(listOf(at(today, 10)), afternoon["Feitas hoje"]!!.map { it.dueAt })
         // Ticked a moment ago, still in its card (struck), until 2 hours go by.
         val ticked = food.copy(doneTimes = Repeat.writeDone(listOf(at(today, 10), at(today, 14))))
         val pra = sectionsFor(Filter.TODAY, listOf(ticked), showDone = false, zone = zone, now = now).toMap()["Pra hoje"]!!
@@ -91,6 +93,18 @@ class TodayTimesTest {
         val late = task(4, "Dar o remédio da noite", remind = at(today.minusDays(1), 23))
         val night = sectionsFor(Filter.TODAY, listOf(late), showDone = false, zone = zone, now = at(today, 0, 30)).toMap()
         assertEquals(listOf(4L), night["Pra hoje"]!!.map { it.id })
+    }
+
+    /** A task with its hour, done: struck in its card while near (as the medicines), not in Feitas hoje twice (1.71). */
+    @Test
+    fun aTimedTaskDoneStaysStruckInItsCard() {
+        val done = task(1, "Ligar pra Ana", remind = at(today, 14)).copy(status = "done", doneAt = at(today, 14, 10), rungAt = at(today, 14))
+        val early = task(2, "Comprar pão", remind = at(today, 8)).copy(status = "done", doneAt = at(today, 8, 5), rungAt = at(today, 8))
+        val loose = task(3, "Ler o contrato").copy(status = "done", doneAt = at(today, 11))
+        val s = sectionsFor(Filter.TODAY, listOf(done, early, loose), showDone = false, zone = zone, now = now).toMap()
+        assertEquals(listOf(1L), s["Pra hoje"]!!.map { it.id })
+        assertEquals(listOf("done"), s["Pra hoje"]!!.map { it.status })
+        assertEquals(setOf(2L, 3L), s["Feitas hoje"]!!.map { it.id }.toSet())
     }
 
     @Test

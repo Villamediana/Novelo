@@ -640,6 +640,55 @@ class ScreensTest {
         shot("58-hidden-file-preview")
     }
 
+    /**
+     * A task that repeats (1.70–1.71): each of its times in Hoje — the one half an hour ago in Pra hoje, the one
+     * 3 hours ago (not ticked) in Atrasadas — and on its page today's times, each ticked on its own.
+     */
+    @Test
+    fun aRepeatingTaskHasEachOfItsTimes() {
+        fun hhmm(ms: Long) = java.time.Instant.ofEpochMilli(ms).atZone(zone).let { "%02d:%02d".format(it.hour, it.minute) }
+        val minute = 60_000L
+        val early = (now - 3 * 3_600_000L) / minute * minute
+        val near = (now - 30 * minute) / minute * minute
+        val rule = com.villamediana.novelo.remind.Repeat(com.villamediana.novelo.remind.Repeat.DAY, time = hhmm(early), times = listOf(hhmm(early), hhmm(near)).sorted())
+        val id = runBlocking {
+            graph.db.entries().insert(
+                Entry(
+                    kind = "task", title = "Comida meninos", body = "Oferecer alimentação.", status = "todo", category = "Pessoal",
+                    remindAt = rule.next(now, zone), repeat = com.villamediana.novelo.remind.Repeat.write(rule), occursFrom = early - minute,
+                    createdAt = early - minute, updatedAt = now,
+                ),
+            )
+        }
+        val nav = Nav()
+        val screen = androidx.compose.runtime.mutableStateOf<Screen>(Screen.Library(Filter.TODAY))
+        compose.setContent {
+            NoveloTheme(ThemeMode.LIGHT) {
+                when (val s = screen.value) {
+                    is Screen.Entry -> EntryScreen(nav, s.id)
+                    is Screen.Library -> LibraryScreen(nav, s)
+                    else -> {}
+                }
+            }
+        }
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Comida meninos").fetchSemanticsNodes().size == 2 }
+        compose.onNodeWithText("Atrasadas").assertExists()
+        compose.onNodeWithText("Pra hoje").assertExists()
+        compose.mainClock.advanceTimeBy(600)
+        shot("80-today-repeating-times")
+        // Its page: the two times to tick; the one half an hour ago, ticked, is done — the other one still isn't.
+        screen.value = Screen.Entry(id)
+        val today = java.time.Instant.ofEpochMilli(now).atZone(zone).toLocalDate().atStartOfDay(zone).toInstant().toEpochMilli()
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("entry-time-$near").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("entry-time-$near").performClick()
+        compose.waitUntil(5_000) { runBlocking { near in com.villamediana.novelo.remind.Repeat.doneOf(graph.db.entries().get(id)!!) } }
+        assertTrue(runBlocking { early !in com.villamediana.novelo.remind.Repeat.doneOf(graph.db.entries().get(id)!!) })
+        compose.onNodeWithTag("entry-time-$early").assertExists()
+        if (early >= today) compose.onNodeWithText(hhmm(early)).assertExists()
+        compose.mainClock.advanceTimeBy(600)
+        shot("81-entry-repeating-times")
+    }
+
     @Test
     fun filesLiveInTheirItemAndTheSearchFindsThem() {
         val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()

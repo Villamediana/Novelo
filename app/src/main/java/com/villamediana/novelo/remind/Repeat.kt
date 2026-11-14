@@ -126,7 +126,8 @@ data class Repeat(
             // (The model's "done" comes already marked so: its times are looked at as the open task's.)
             val open = e.copy(status = Status.TODO.key, doneAt = null)
             val at = if (repeats(e)) current(open, now, zone) else null
-            if (at == null) return e.copy(status = Status.DONE.key, doneAt = now, checkInAt = null, remindAt = null, updatedAt = now)
+            // Done keeps its hour (Hoje shows it struck in its card a while, 1.71) and never rings.
+            if (at == null) return e.copy(status = Status.DONE.key, doneAt = now, checkInAt = null, rungAt = e.remindAt, updatedAt = now)
             return tick(open, at, done = true, now = now, zone = zone)
         }
 

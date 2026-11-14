@@ -252,7 +252,8 @@ class Library(private val db: NoveloDatabase, private val reminders: ReminderSyn
         db.entries().update(
             // Done: nothing left to remind — unless it repeats: then this time is done and it comes back.
             if (status == Status.DONE) com.villamediana.novelo.remind.Repeat.done(e, now, zone)
-            else e.copy(status = status.key, doneAt = null, updatedAt = now),
+            // Open again: a reminder still to come rings again (done had kept it quiet).
+            else e.copy(status = status.key, doneAt = null, rungAt = e.rungAt.takeIf { e.remindAt == null || e.remindAt <= now }, updatedAt = now),
         )
         db.progress().insert(Progress(entryId = id, at = now, text = "", status = status.key))
         reminders.sync(listOf(id))

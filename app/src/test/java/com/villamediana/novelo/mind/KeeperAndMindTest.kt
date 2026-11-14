@@ -825,14 +825,19 @@ class KeeperAndMindTest {
     }
 
     @Test
-    fun doneByHandDropsItsReminder() = runBlocking {
+    fun doneByHandSilencesItsReminder() = runBlocking {
         val id = db.entries().insert(Entry(kind = "task", title = "Pagar o IPVA", status = "todo", remindAt = now + 3_600_000L, checkInAt = now + 7_200_000L, createdAt = now, updatedAt = now))
         val sync = Synced()
         com.villamediana.novelo.data.Library(db, sync, clock = { now }).setStatus(id, Status.DONE)
         val e = db.entries().get(id)!!
-        assertNull(e.remindAt)
+        // Its hour is kept (Hoje shows it struck a while) but it never rings: marked as rung.
+        assertEquals(now + 3_600_000L, e.remindAt)
+        assertEquals(e.remindAt, e.rungAt)
         assertNull(e.checkInAt)
         assertEquals(listOf(id), sync.ids) // the alarm is cancelled with it
+        // Open again before its time: it rings again.
+        com.villamediana.novelo.data.Library(db, sync, clock = { now }).setStatus(id, Status.TODO)
+        assertNull(db.entries().get(id)!!.rungAt)
     }
 
     @Test

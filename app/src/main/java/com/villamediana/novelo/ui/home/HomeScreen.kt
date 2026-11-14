@@ -732,7 +732,8 @@ private fun BottomBar(entries: List<Entry>, onCamera: () -> Unit, onGallery: () 
     val taken by graph.takenNow.collectAsState()
     val now = com.villamediana.novelo.ui.meds.rememberNow()
     val doses = remember(meds, taken, now / 60_000) { com.villamediana.novelo.ui.meds.dosesDue(meds.orEmpty(), taken.orEmpty(), now) }
-    val today = remember(entries) { todayCount(entries) } + doses
+    // (Again as the day goes: past midnight a new day's times count.)
+    val today = remember(entries, now / 60_000) { todayCount(entries, now = now) } + doses
     val gap = 6.dp
     // What brings things in on the left (camera, gallery, files), the search on the right, and "Hoje"
     // in the middle — moved over only as much as it takes not to touch the left ones on a narrow phone.
