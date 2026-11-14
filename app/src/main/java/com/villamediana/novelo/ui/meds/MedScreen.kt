@@ -272,7 +272,12 @@ fun MedScreen(nav: Nav, id: Long) {
                         }
                     }
                     Spacer(Modifier.height(10.dp))
-                    TimeChip(t(R.string.med_first_dose, Doses.hhmm(anchor(times)))) { pickTime(anchor(times)) { t0 -> set { it.copy(times = Doses.writeTimes(Doses.every(t0, h))) } } }
+                    // The first dose: its hour gives the others, and the treatment starts there (on its first day).
+                    TimeChip(t(R.string.med_first_dose, Doses.hhmm(anchor(times)))) {
+                        pickTime(anchor(times)) { t0 ->
+                            set { it.copy(times = Doses.writeTimes(Doses.every(t0, h)), startsAt = Doses.dayOf(it.startsAt, zone).atTime(t0).atZone(zone).toInstant().toEpochMilli()) }
+                        }
+                    }
                     Spacer(Modifier.height(8.dp))
                     Text(times.joinToString(" · ") { Doses.hhmm(it) }, style = MaterialTheme.typography.bodyMedium, color = NoveloColors.TextMuted)
                 }
