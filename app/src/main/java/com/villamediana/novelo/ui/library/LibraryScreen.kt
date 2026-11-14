@@ -311,9 +311,27 @@ fun LibraryScreen(nav: Nav, screen: Screen.Library) {
 
         val list = entries
         if (hits != null) {
-            val nothing = hits.isEmpty() && photoHits.isEmpty() && fileHits.isEmpty()
+            // The medicines too (by name, person, how to take): their cards on top.
+            val allMeds by graph.medsNow.collectAsStateWithLifecycle()
+            val allTaken by graph.takenNow.collectAsStateWithLifecycle()
+            val medHits = remember(allMeds, debounced) { com.villamediana.novelo.ui.meds.medsFound(allMeds.orEmpty(), debounced) }
+            val nothing = hits.isEmpty() && photoHits.isEmpty() && fileHits.isEmpty() && medHits.isEmpty()
             val found = listOf((if (nothing) t(if (looking) R.string.search_by_meaning else R.string.search_nothing) else null) to hits.map { it.entry })
-            Entries(Filter.ALL, found, list.orEmpty(), terms = terms, showDone = false, onShowDone = {}, open = open, toggle = toggle, photos = photoHits, files = fileHits)
+            val medsLabel = t(R.string.tab_meds)
+            Entries(
+                Filter.ALL, found, list.orEmpty(), terms = terms, showDone = false, onShowDone = {}, open = open, toggle = toggle, photos = photoHits, files = fileHits,
+                top = if (medHits.isEmpty()) null else ({
+                    item(key = "label-found-meds") { SectionLabel(medsLabel, Modifier.animateItem()) }
+                    itemsIndexed(medHits, key = { _, m -> "found-med-${m.id}" }) { i, m ->
+                        Box(Modifier.animateItem().padding(bottom = if (i == medHits.lastIndex) 14.dp else GroupGap)) {
+                            com.villamediana.novelo.ui.meds.MedCard(
+                                m, System.currentTimeMillis(), onClick = { nav.go(Screen.Med(m.id)) }, shape = groupShape(i, medHits.size),
+                                taken = allTaken.orEmpty().filter { it.medId == m.id }.map { it.at }.toSet(), modifier = Modifier.testTag("found-med-$i"),
+                            )
+                        }
+                    }
+                }),
+            )
             return@Column
         }
         Box(Modifier.fillMaxSize().nestedScroll(edge)) {
@@ -330,7 +348,7 @@ fun LibraryScreen(nav: Nav, screen: Screen.Library) {
                             val day = com.villamediana.novelo.ui.meds.rememberToday(now)
                             // Only what is near (Miguel, 1.66): the times of the last 2 hours (to tick one forgotten) and the next
                             // one; the whole day is in Remédios, and the reminders come by themselves.
-                            val slots = remember(day?.slots, now / 60_000) { com.villamediana.novelo.ui.meds.nearTimes(day?.slots.orEmpty(), now) }
+                            val slots = remember(day?.slots, day?.lastNight, now / 60_000) { com.villamediana.novelo.ui.meds.nearTimes(day?.lastNight.orEmpty() + day?.slots.orEmpty(), now) }
                             val medsLabel = t(R.string.tab_meds)
                             Entries(
                                 f, sectionsFor(f, list, showDone), list, terms = null, showDone = showDone, onShowDone = { showDone = !showDone }, open = open, toggle = toggle,
@@ -768,10 +786,13 @@ fun sectionsFor(filter: Filter, all: List<Entry>, showDone: Boolean, zone: ZoneI
             // One group per category, under its name (the ones with the most open tasks first; none empty), the
             // ones with no category yet on top; inside, her order (see inOrder). The done ones last, folded.
             buildList {
+                val none = t(R.string.category_none)
+                val done = t(R.string.section_done)
                 val loose = open.filter { it.category == null }
-                if (loose.isNotEmpty()) add(t(R.string.category_none) to inOrder(loose))
-                Categories.inUse(open).forEach { c -> add(c to inOrder(open.filter { it.category == c })) }
-                add(t(R.string.section_done) to tasks.filter { it.statusEnum == Status.DONE }.sortedByDescending { it.doneAt ?: it.updatedAt })
+                if (loose.isNotEmpty()) add(none to inOrder(loose))
+                // A category she named like one of these groups ("Feitas") is still its own group: told apart by a mark that isn't seen.
+                Categories.inUse(open).forEach { c -> add((if (c == none || c == done) c + "\u200B" else c) to inOrder(open.filter { it.category == c })) }
+                add(done to tasks.filter { it.statusEnum == Status.DONE }.sortedByDescending { it.doneAt ?: it.updatedAt })
             }
         }
         Filter.NOTES -> listOf(null to byHand(all.filter { it.kindEnum == Kind.NOTE }))

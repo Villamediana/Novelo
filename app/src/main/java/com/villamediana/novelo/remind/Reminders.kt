@@ -199,11 +199,12 @@ class ReminderReceiver : BroadcastReceiver() {
     }
 }
 
-/** After a reboot or an update, the alarms are armed again. */
+/** After a reboot or an update — or when the clock or the time zone changes (a medicine's 08:00 is the new 08:00) — the alarms are armed again. */
 class RearmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED && intent.action != Intent.ACTION_MY_PACKAGE_REPLACED &&
-            intent.action != "android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED"
+            intent.action != "android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" &&
+            intent.action != Intent.ACTION_TIMEZONE_CHANGED && intent.action != Intent.ACTION_TIME_CHANGED
         ) return
         val result = goAsync()
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {

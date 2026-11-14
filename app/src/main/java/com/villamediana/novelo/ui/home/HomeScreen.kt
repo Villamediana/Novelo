@@ -726,7 +726,13 @@ private fun ProblemView(s: MindState.Problem, onRetry: (Long) -> Unit, onDiscard
 /** The camera and the gallery, what is for today (the way into everything kept), the search. */
 @Composable
 private fun BottomBar(entries: List<Entry>, onCamera: () -> Unit, onGallery: () -> Unit, onFile: () -> Unit, onToday: () -> Unit, onSearch: () -> Unit) {
-    val today = remember(entries) { todayCount(entries) }
+    // What is for today: the tasks, and the medicines' doses due now and not ticked.
+    val graph = com.villamediana.novelo.NoveloApplication.graph
+    val meds by graph.medsNow.collectAsState()
+    val taken by graph.takenNow.collectAsState()
+    val now = com.villamediana.novelo.ui.meds.rememberNow()
+    val doses = remember(meds, taken, now / 60_000) { com.villamediana.novelo.ui.meds.dosesDue(meds.orEmpty(), taken.orEmpty(), now) }
+    val today = remember(entries) { todayCount(entries) } + doses
     val gap = 6.dp
     // What brings things in on the left (camera, gallery, files), the search on the right, and "Hoje"
     // in the middle — moved over only as much as it takes not to touch the left ones on a narrow phone.

@@ -372,6 +372,25 @@ class MedsTest {
         assertEquals(at(today, 10), db.meds().get(dip.meds.single())!!.startsAt)
     }
 
+    /** Revisão geral: the search finds medicines; the main screen counts the doses due now; late last night is still near after midnight. */
+    @Test
+    fun medicinesAreFoundCountedAndNearAcrossMidnight() {
+        val amox = med("Amoxicilina", listOf("08:00", "20:00"), person = "Cooper", id = 1).copy(notes = "depois de comer")
+        val losartana = med("Losartana", listOf("08:00"), id = 2)
+        assertEquals(listOf(1L), com.villamediana.novelo.ui.meds.medsFound(listOf(amox, losartana), "amoxi cooper").map { it.id })
+        assertEquals(listOf(1L), com.villamediana.novelo.ui.meds.medsFound(listOf(amox, losartana), "COMER").map { it.id })
+        assertTrue(com.villamediana.novelo.ui.meds.medsFound(listOf(amox, losartana), "  ").isEmpty())
+        // 09:00: both 08:00 are due and not ticked; one ticked, one left; at 11:00 they are no longer near.
+        assertEquals(2, com.villamediana.novelo.ui.meds.dosesDue(listOf(amox, losartana), emptyList(), at(today, 9), zone))
+        assertEquals(1, com.villamediana.novelo.ui.meds.dosesDue(listOf(amox, losartana), listOf(MedTaken(2, at(today, 8), now)), at(today, 9), zone))
+        assertEquals(0, com.villamediana.novelo.ui.meds.dosesDue(listOf(amox, losartana), emptyList(), at(today, 11), zone))
+        // 00:30: last night's 23:00 is still near (to tick), with today's next one.
+        val night = med("Noturno", listOf("23:00", "07:00"), start = at(today.minusDays(3), 0), id = 3)
+        val yesterday = Doses.day(listOf(night), today.minusDays(1), zone)
+        val near = com.villamediana.novelo.ui.meds.nearTimes(yesterday + Doses.day(listOf(night), today, zone), at(today, 0, 30))
+        assertEquals(listOf(at(today.minusDays(1), 23), at(today, 7)), near.map { it.at })
+    }
+
     @Test
     fun theTreatmentGoesAlongItsDays() {
         val m = med("A", listOf("08:00"), start = at(today.minusDays(3), 9), end = Doses.endOf(today.plusDays(6), zone))

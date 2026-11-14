@@ -227,7 +227,9 @@ fun MedScreen(nav: Nav, id: Long) {
             Spacer(Modifier.height(8.dp))
             // A tap for the usual amounts: the number changes, the word stays ("comprimido" when there is none).
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                listOf("¼", "½", "1", "2").forEach { q ->
+                // Only for a dose counted in pieces (or none yet): "½ mg" or "2 gotas" by a tap would be wrong.
+                val inPieces = d.dose.isNullOrBlank() || Doses.pieces(d.dose.orEmpty()) != null
+                if (inPieces) listOf("¼", "½", "1", "2").forEach { q ->
                     val cur = d.dose.orEmpty()
                     val word = cur.replace(Regex("""^\s*([\d.,/]+|[½¼¾⅓⅔]|meio|meia|uma|um|duas|dois|una|uno|un|media|medio|half|one|two)(?![\p{L}])\s*""", RegexOption.IGNORE_CASE), "").trim().ifEmpty { t(R.string.med_tablet) }
                     val made = "$q ${if (q == "2") plural(word) else singular(word)}"
@@ -254,7 +256,7 @@ fun MedScreen(nav: Nav, id: Long) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Pill(t(R.string.med_mode_every), mode == Mode.EVERY, {
                     val h = d.everyHours ?: 8
-                    set { it.copy(everyHours = h, times = Doses.writeTimes(Doses.every(anchor(times), h))) }
+                    set { it.copy(everyHours = h, times = Doses.writeTimes(Doses.every(anchor(times, d.startsAt, zone), h))) }
                 })
                 Pill(t(R.string.med_mode_fixed), mode == Mode.FIXED, { set { it.copy(everyHours = null, times = Doses.writeTimes(times.ifEmpty { listOf(LocalTime.of(8, 0)) })) } })
                 Pill(t(R.string.med_mode_needed), mode == Mode.NEEDED, { set { it.copy(everyHours = null, times = "[]") } })
@@ -268,13 +270,13 @@ fun MedScreen(nav: Nav, id: Long) {
                     val h = d.everyHours ?: 8
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         listOf(4, 6, 8, 12, 24).forEach { n ->
-                            Pill(t(R.string.med_hours, n), h == n, { set { it.copy(everyHours = n, times = Doses.writeTimes(Doses.every(anchor(times), n))) } })
+                            Pill(t(R.string.med_hours, n), h == n, { set { it.copy(everyHours = n, times = Doses.writeTimes(Doses.every(anchor(times, d.startsAt, zone), n))) } })
                         }
                     }
                     Spacer(Modifier.height(10.dp))
                     // The first dose: its hour gives the others, and the treatment starts there (on its first day).
-                    TimeChip(t(R.string.med_first_dose, Doses.hhmm(anchor(times)))) {
-                        pickTime(anchor(times)) { t0 ->
+                    TimeChip(t(R.string.med_first_dose, Doses.hhmm(anchor(times, d.startsAt, zone)))) {
+                        pickTime(anchor(times, d.startsAt, zone)) { t0 ->
                             set { it.copy(times = Doses.writeTimes(Doses.every(t0, h)), startsAt = Doses.dayOf(it.startsAt, zone).atTime(t0).atZone(zone).toInstant().toEpochMilli()) }
                         }
                     }
@@ -369,8 +371,11 @@ fun MedScreen(nav: Nav, id: Long) {
     }
 }
 
-/** Which of every-N-hours times reads as the first dose (one from the morning on); 08:00 when there are none. */
-private fun anchor(times: List<LocalTime>): LocalTime = times.firstOrNull { it.hour >= 6 } ?: times.firstOrNull() ?: LocalTime.of(8, 0)
+/** Which of every-N-hours times is the first dose: the hour it started at, when that is one of them (else one from the morning on); 08:00 when there are none. */
+private fun anchor(times: List<LocalTime>, startsAt: Long, zone: ZoneId): LocalTime {
+    val begun = Instant.ofEpochMilli(startsAt).atZone(zone).toLocalTime().withSecond(0).withNano(0)
+    return times.firstOrNull { it == begun } ?: times.firstOrNull { it.hour >= 6 } ?: times.firstOrNull() ?: LocalTime.of(8, 0)
+}
 
 /** "comprimidos" → "comprimido" (and back), for the amounts tapped. */
 private fun singular(word: String): String = if (word.endsWith("s") && word.length > 3) word.dropLast(1) else word

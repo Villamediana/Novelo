@@ -215,7 +215,14 @@ fun EntryScreen(nav: Nav, id: Long) {
             // it stands (doing, waiting) isn't set by hand here (1.60): no micromanaging.
             if (kind == Kind.TASK) {
                 Spacer(Modifier.height(14.dp))
-                CategoryLine(e)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    CategoryLine(e)
+                    // Done or not, here too (the circle in the lists does the same).
+                    com.villamediana.novelo.ui.components.Pill(
+                        t(R.string.status_done), selected = e.statusEnum == Status.DONE,
+                        onClick = { scope.launch { lib.toggleDone(e.id) } }, modifier = Modifier.testTag("entry-done"),
+                    )
+                }
             }
 
             // The diary: the day's photos first, then its text on a stitched page in the serif.

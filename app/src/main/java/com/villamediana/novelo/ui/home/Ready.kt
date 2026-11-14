@@ -102,16 +102,15 @@ internal fun ReadyCard(missing: List<Missing>, nudge: Int, onSettings: () -> Uni
             .testTag("ready-card"),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            // The lock only when the button is locked.
-            if (missing.any { it.locks }) {
-                Icon(NoveloIcons.Lock, null, tint = NoveloColors.Accent, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(7.dp))
-            }
+        // "Falta pouco pra começar" (and the lock) only when the button is locked: who sees missing doesn't stop her.
+        val locked = missing.any { it.locks }
+        if (locked) Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(NoveloIcons.Lock, null, tint = NoveloColors.Accent, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(7.dp))
             Text(t(R.string.ready_title), style = NoveloText.Invite, color = NoveloColors.Text, textAlign = TextAlign.Center)
         }
-        missing.forEach { m ->
-            Spacer(Modifier.height(12.dp))
+        missing.forEachIndexed { i, m ->
+            if (locked || i > 0) Spacer(Modifier.height(12.dp))
             when (m) {
                 Missing.EARS -> {
                     Text(t(R.string.ready_ears), style = MaterialTheme.typography.bodyMedium, color = NoveloColors.TextMuted, textAlign = TextAlign.Center)

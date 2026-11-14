@@ -124,6 +124,9 @@ class CategoriesTest {
         assertEquals(listOf(a1.id, a3.id, a2.id), sections[1].second.map { it.id })
         assertEquals(setOf(b1.id, doing.id), sections[2].second.map { it.id }.toSet())
         assertEquals(listOf(done.id), sections[3].second.map { it.id })
+        // A category she named "Feitas" is its own group, apart from the done ones (no doubled key in the list).
+        val named = com.villamediana.novelo.ui.library.sectionsFor(com.villamediana.novelo.ui.Filter.TASKS, listOf(e("Feitas"), e("Casa", status = "done")), showDone = false)
+        assertEquals(2, named.map { it.first }.distinct().size)
         // A category with no open task has no group.
         val onlyDone = com.villamediana.novelo.ui.library.sectionsFor(com.villamediana.novelo.ui.Filter.TASKS, listOf(a1, e("Saúde", status = "done")), showDone = false)
         assertEquals(listOf("Trabalho", "Feitas"), onlyDone.map { it.first })
