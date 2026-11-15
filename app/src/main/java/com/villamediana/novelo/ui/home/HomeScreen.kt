@@ -71,6 +71,9 @@ import com.villamediana.novelo.ui.components.swipeNav
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextAlign
@@ -83,6 +86,7 @@ import com.villamediana.novelo.data.Entry
 import com.villamediana.novelo.data.Kind
 import com.villamediana.novelo.data.Outcome
 import com.villamediana.novelo.data.Status
+import com.villamediana.novelo.mind.Mind
 import com.villamediana.novelo.mind.MindState
 import com.villamediana.novelo.mind.Need
 import com.villamediana.novelo.mind.Stage
@@ -236,6 +240,7 @@ fun HomeScreen(nav: Nav, talkAbout: Long?, onTalkHandled: () -> Unit) {
                         onOpenMed = { nav.go(Screen.Med(it)) },
                         onToggle = { id -> scope.launch { graph.library.toggleDone(id) } },
                         onDismiss = mind::dismiss,
+                        onReading = mind::reading,
                         onRetry = { mind.retry(it) },
                         onDiscard = { mind.discard(it) },
                         onSettings = { nav.go(Screen.Settings(ai = true)) },
@@ -436,6 +441,7 @@ private fun StatusArea(
     onDismiss: () -> Unit,
     onRetry: (Long) -> Unit,
     onOpenMed: (Long) -> Unit = {},
+    onReading: () -> Unit = {},
     onDiscard: (Long) -> Unit,
     onSettings: () -> Unit,
     onStop: () -> Unit,
@@ -471,7 +477,7 @@ private fun StatusArea(
                 )
                 is MindState.Listening -> ListeningText(s, inCancelZone, onCancel)
                 is MindState.Working -> WorkingText(s, onStop)
-                is MindState.Answer -> AnswerView(s, entries, onOpen, onToggle, onDismiss, onOpenMed)
+                is MindState.Answer -> AnswerView(s, entries, onOpen, onToggle, onDismiss, onOpenMed, onReading)
                 is MindState.Problem -> ProblemView(s, onRetry, onDiscard, onSettings, onDismiss)
             }
         }
@@ -490,6 +496,18 @@ internal fun ListeningText(s: MindState.Listening, inCancelZone: Boolean, onCanc
         style = MaterialTheme.typography.headlineMedium,
         color = if (inCancelZone) NoveloColors.TextMuted else NoveloColors.Text,
     )
+    // Near the longest a recording goes, quietly: how long until it closes by itself (she can stop
+    // and record again). Faint at first, in the accent at the very end.
+    val left = s.closesAt - now
+    if (left in 0..Mind.CLOSING_SHOWN_MS) {
+        val l = (left + 999) / 1000
+        Text(
+            t(R.string.closes_in, "%d:%02d".format(l / 60, l % 60)),
+            style = MaterialTheme.typography.labelSmall,
+            color = if (left <= 30_000) NoveloColors.Accent else NoveloColors.TextFaint,
+            modifier = Modifier.testTag("closes-in"),
+        )
+    }
     Spacer(Modifier.height(4.dp))
     Text(
         when {
@@ -608,9 +626,19 @@ private fun Said(text: String, maxLines: Int) {
 }
 
 @Composable
-private fun AnswerView(s: MindState.Answer, entries: List<Entry>, onOpen: (Long) -> Unit, onToggle: (Long) -> Unit, onDismiss: () -> Unit, onOpenMed: (Long) -> Unit = {}) {
+private fun AnswerView(s: MindState.Answer, entries: List<Entry>, onOpen: (Long) -> Unit, onToggle: (Long) -> Unit, onDismiss: () -> Unit, onOpenMed: (Long) -> Unit = {}, onReading: () -> Unit = {}) {
     var showSaid by remember { mutableStateOf(false) }
-    Box(Modifier.fillMaxWidth()) {
+    // The answer goes by itself after a while; a touch on it (reading, scrolling, a card) starts the time again.
+    val reading by androidx.compose.runtime.rememberUpdatedState(onReading)
+    Box(
+        Modifier.fillMaxWidth().pointerInput(Unit) {
+            awaitPointerEventScope {
+                while (true) {
+                    if (awaitPointerEvent(PointerEventPass.Initial).type == PointerEventType.Press) reading()
+                }
+            }
+        },
+    ) {
         Column(Modifier.fillMaxWidth().padding(top = 2.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             if (s.reply.isNotBlank()) {
                 Text(s.reply, style = MaterialTheme.typography.titleLarge, color = NoveloColors.Text, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 12.dp))

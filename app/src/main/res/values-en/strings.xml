@@ -237,6 +237,8 @@
     <string name="accent_ameixa">Plum</string>
     <string name="mic_failed">I couldn\'t open the microphone.</string>
     <string name="heard_nothing">I didn\'t hear anything. Try again, a little closer.</string>
+    <string name="closed_quiet">I closed the microphone: %d minutes without hearing you.</string>
+    <string name="closes_in">closes by itself in %s</string>
     <string name="read_nothing">I couldn\'t read anything in the photo. Try closer, with more light.</string>
     <string name="api_answered">The API answered %1$d: %2$s</string>
     <string name="offline_kept">No connection right now. I kept it; it goes by itself when the internet is back.</string>

@@ -38,7 +38,8 @@ sealed interface MindState {
     data object Idle : MindState
 
     /** The microphone is open. [locked]: tapped (stays open until tapped again), not held. */
-    data class Listening(val startedAt: Long, val locked: Boolean, val focusId: Long?) : MindState
+    /** [closesAt]: when the microphone closes by itself if she is still talking (see [Mind.LONGEST_MS]). */
+    data class Listening(val startedAt: Long, val locked: Boolean, val focusId: Long?, val closesAt: Long = Long.MAX_VALUE) : MindState
 
     /** [step] of [of]: which piece, photo or file it is on (0: just the stage). */
     data class Working(val captureId: Long, val stage: Stage, val text: String, val photo: Boolean = false, val typed: Boolean = false, val step: Int = 0, val of: Int = 0) : MindState
@@ -105,6 +106,12 @@ interface MicHolder {
     fun hold()
     fun release()
     fun working(on: Boolean) {}
+
+    /** The microphone closes by itself soon (too long open): [ticks] light touches, more the closer it is. */
+    fun closingSoon(ticks: Int) {}
+
+    /** The microphone closed by itself (a long silence, or too long open): she is told without looking. */
+    fun closedByItself() {}
 }
 
 /**
@@ -134,6 +141,12 @@ class Mind(
     private val about: About = NoAbout,
     /** What is near what she says by meaning (the search by meaning, on the phone). */
     private val near: Nearby = Nearby.NONE,
+    /** How long an answer stays on the screen by itself (see [reading]). */
+    private val answerFor: Long = ANSWER_MS,
+    /** A microphone left open closes by itself after this long without her voice… */
+    private val quietFor: Long = QUIET_MS,
+    /** …or after this long in all. */
+    private val longest: Long = LONGEST_MS,
 ) {
     private val _state = MutableStateFlow<MindState>(MindState.Idle)
     val state: StateFlow<MindState> = _state
@@ -221,11 +234,41 @@ class Mind(
         @Volatile var heard = Heard()
         @Volatile var at = 0
         @Volatile var talking = true
+        /** The warnings before [longest] already given (how many of [CLOSING_SOON]). */
+        var warned = 0
         /** After she stopped: the text as it comes, on the screen. */
         @Volatile var show: ((String) -> Unit)? = null
     }
 
     @Volatile private var live: Live? = null
+    private val liveLock = Any()
+
+    /** The recording going on, taken by whoever ends it (the button, the notification, or [watch]): only one does. */
+    private fun takeLive(): Live? = synchronized(liveLock) { live.also { live = null } }
+
+    /**
+     * A microphone forgotten open costs: it closes by itself after [quietFor] without her voice, or
+     * after [longest] in all. What she said goes on as if she had stopped; nothing said, nothing kept.
+     * Coming close to [longest] she feels it, lightly, more the closer it is ([CLOSING_SOON]): she can
+     * stop and record again.
+     */
+    private suspend fun watch(l: Live) {
+        while (l.talking) {
+            delay(WATCH_EVERY_MS)
+            if (!l.talking) return
+            val open = recorder.elapsedMs()
+            if (recorder.quietMs() >= quietFor || open >= longest) {
+                stop(byItself = true)
+                return
+            }
+            // Only the closest one crossed (a warning missed isn't given late on top of the next).
+            val crossed = CLOSING_SOON.count { (left, _) -> open >= longest - left }
+            if (crossed > l.warned) {
+                l.warned = crossed
+                mic.closingSoon(CLOSING_SOON[crossed - 1].second)
+            }
+        }
+    }
 
     private suspend fun listenAhead(l: Live) {
         while (l.talking) {
@@ -245,8 +288,12 @@ class Mind(
             return false
         }
         mic.hold()
-        _state.value = MindState.Listening(clock(), locked, focusId)
-        live = Live(file).also { l -> l.job = scope.launch { listenAhead(l) } }
+        val at = clock()
+        _state.value = MindState.Listening(at, locked, focusId, closesAt = at + longest)
+        live = Live(file).also { l ->
+            l.job = scope.launch { listenAhead(l) }
+            scope.launch { watch(l) }
+        }
         // The model on the phone loads while she talks: when she stops, the work starts at once.
         scope.launch {
             runCatching { hearing.warm() }
@@ -261,17 +308,22 @@ class Mind(
         _state.value = s.copy(locked = true)
     }
 
-    fun stopListening() {
+    fun stopListening() = stop(byItself = false)
+
+    private fun stop(byItself: Boolean) {
         val s = _state.value as? MindState.Listening ?: return
-        val l = live
-        live = null
-        l?.talking = false
+        val l = takeLive() ?: return
+        l.talking = false
+        val voice = recorder.heardVoice
         val stopped = recorder.stop()
-        if (stopped == null || stopped.second < MIN_MS) {
-            l?.job?.cancel()
+        if (byItself) mic.closedByItself()
+        if (stopped == null || stopped.second < MIN_MS || (byItself && !voice)) {
+            l.job.cancel()
             stopped?.first?.delete()
             mic.release()
             _state.value = MindState.Idle
+            // Closed by itself and she said nothing at all: nothing to hear; she is told why it closed.
+            if (byItself && stopped != null) show(MindState.Problem(null, null, t(R.string.closed_quiet, (quietFor / 60_000).coerceAtLeast(1))))
             return
         }
         val (file, ms) = stopped
@@ -308,8 +360,9 @@ class Mind(
 
     fun cancelListening() {
         if (_state.value !is MindState.Listening) return
-        live?.let { it.talking = false; it.job.cancel() }
-        live = null
+        val l = takeLive() ?: return
+        l.talking = false
+        l.job.cancel()
         recorder.stop()?.first?.delete()
         mic.release()
         _state.value = MindState.Idle
@@ -536,6 +589,25 @@ class Mind(
 
     fun dismiss() {
         if (_state.value is MindState.Answer || _state.value is MindState.Problem) _state.value = MindState.Idle
+    }
+
+    /** She is reading the answer (a touch on it): its time on the screen starts again. */
+    fun reading() {
+        _state.value.takeIf(::passing)?.let(::fade)
+    }
+
+    /** What is only there to be read: an answer, or a word that asks nothing of her (nothing to try again or set up). */
+    private fun passing(s: MindState) = s is MindState.Answer || (s is MindState.Problem && s.captureId == null && s.need == null)
+
+    @Volatile private var fading: Job? = null
+
+    /** [s] leaves the screen by itself after [answerFor], unless something else took its place: an app opened later starts clean. */
+    private fun fade(s: MindState) {
+        fading?.cancel()
+        fading = scope.launch {
+            delay(answerFor)
+            _state.compareAndSet(s, MindState.Idle)
+        }
     }
 
     private fun enqueue(id: Long) {
@@ -928,11 +1000,30 @@ class Mind(
         // A new recording on screen wins over the background work's progress.
         if (_state.value is MindState.Listening) return
         _state.value = state
+        if (passing(state)) fade(state)
     }
 
     companion object {
         /** Shorter than this is a slip of the finger, not a thought. */
         const val MIN_MS = 700L
+
+        /** An answer read (or left there) goes after this long; a touch on it starts it again. */
+        const val ANSWER_MS = 30_000L
+
+        /** Without her voice this long, the microphone closes by itself… */
+        const val QUIET_MS = 2 * 60_000L
+
+        /** …and open this long in all, too (a television on doesn't stop by silence). */
+        const val LONGEST_MS = 15 * 60_000L
+
+        /** How often, while she talks, the microphone is looked at for that. */
+        const val WATCH_EVERY_MS = 1_000L
+
+        /** Before [LONGEST_MS]: this long before it, so many light touches (the closer, the more). */
+        val CLOSING_SOON = listOf(2 * 60_000L to 1, 60_000L to 2, 30_000L to 3)
+
+        /** On the screen, how long before it closes it starts saying so (quietly). */
+        const val CLOSING_SHOWN_MS = 2 * 60_000L
 
         /** How often, while she talks, it looks for a piece that is already whole. */
         const val AHEAD_EVERY_MS = 1_500L

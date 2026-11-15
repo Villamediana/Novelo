@@ -25,6 +25,8 @@ open class Recorder {
     private var thread: Thread? = null
     private var file: File? = null
     private var startedAt = 0L
+    @Volatile private var voiceAt = 0L
+    @Volatile private var anyVoice = false
 
     open val isRecording: Boolean get() = running
 
@@ -45,6 +47,8 @@ open class Recorder {
         file = target
         running = true
         startedAt = System.currentTimeMillis()
+        voiceAt = startedAt
+        anyVoice = false
         thread = Thread({ loop(record, target) }, "novelo-mic").apply { priority = Thread.MAX_PRIORITY; start() }
         return true
     }
@@ -61,13 +65,20 @@ open class Recorder {
         return runCatching { Wav.finish(f); f to Wav.durationMs(f) }.getOrNull()
     }
 
-    fun elapsedMs(): Long = if (running) System.currentTimeMillis() - startedAt else 0L
+    open fun elapsedMs(): Long = if (running) System.currentTimeMillis() - startedAt else 0L
+
+    /** How long since her voice was last heard (since the start, when it wasn't yet): a microphone forgotten open is quiet. */
+    open fun quietMs(): Long = if (running) System.currentTimeMillis() - voiceAt else 0L
+
+    /** Her voice was heard at some moment of this recording. */
+    open val heardVoice: Boolean get() = anyVoice
 
     private fun loop(record: AudioRecord, target: File) {
         val frame = Wav.RATE / 50 // 20 ms
         val buf = ShortArray(frame)
         val bytes = ByteArray(frame * 2)
         var smooth = 0f
+        var voiced = 0
         try {
             BufferedOutputStream(FileOutputStream(target), 64 * 1024).use { out ->
                 out.write(Wav.header(0))
@@ -84,6 +95,12 @@ open class Recorder {
                     }
                     out.write(bytes, 0, n * 2)
                     val rms = sqrt(sum / n) / 32768.0
+                    // Her voice: a little while above what the hearing takes for silence (a knock alone isn't).
+                    if (rms > VOICE) {
+                        if (++voiced >= VOICE_FRAMES) { voiceAt = System.currentTimeMillis(); anyVoice = true }
+                    } else {
+                        voiced = 0
+                    }
                     val db = 20 * log10(rms.coerceAtLeast(1e-6))
                     val target01 = ((db + 58) / 46).toFloat().coerceIn(0f, 1f)
                     // Rises fast, falls slower: the orb follows the voice without flicker.
@@ -97,5 +114,13 @@ open class Recorder {
             runCatching { record.stop() }
             record.release()
         }
+    }
+
+    private companion object {
+        /** Louder than this is someone talking (the level [Pieces.isSilent] hears as sound). */
+        const val VOICE = 0.012
+
+        /** For this many frames in a row (60 ms). */
+        const val VOICE_FRAMES = 3
     }
 }

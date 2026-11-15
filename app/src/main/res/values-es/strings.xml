@@ -237,6 +237,8 @@
     <string name="accent_ameixa">Ciruela</string>
     <string name="mic_failed">No pude abrir el micrófono.</string>
     <string name="heard_nothing">No oí nada. Intenta de nuevo, un poco más cerca.</string>
+    <string name="closed_quiet">Cerré el micrófono: %d minutos sin oírte.</string>
+    <string name="closes_in">se cierra solo en %s</string>
     <string name="read_nothing">No pude leer nada en la foto. Intenta más cerca, con más luz.</string>
     <string name="api_answered">La API respondió %1$d: %2$s</string>
     <string name="offline_kept">Sin conexión ahora. Lo guardé; se va solo cuando vuelva internet.</string>
