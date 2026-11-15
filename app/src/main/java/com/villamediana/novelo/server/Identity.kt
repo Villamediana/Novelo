@@ -83,6 +83,15 @@ class MemoryBox : KeyBox {
     override fun chain(): List<ByteArray> = emptyList()
 }
 
+/**
+ * Where the Novelo's server is: the address the build was made with — except in the unit tests,
+ * which run with none (app/build.gradle.kts sets "novelo.server" empty for them), so no test ever
+ * talks to the real server or registers a phone there.
+ */
+object ServerAddress {
+    val base: String by lazy { System.getProperty("novelo.server") ?: com.villamediana.novelo.BuildConfig.NOVELO_SERVER }
+}
+
 object Install {
     /**
      * The phone itself, for the server: the same when the app is installed again (so a trial goes

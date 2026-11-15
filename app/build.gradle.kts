@@ -30,7 +30,10 @@ val noveloServer: String = (System.getenv("NOVELO_SERVER_URL")?.trim()?.takeIf {
     ?: File(System.getProperty("user.home"), ".config/novelo/server.env").takeIf { it.isFile }
         ?.readLines()?.firstOrNull { it.startsWith("NOVELO_SERVER_URL=") }?.substringAfter('=')?.trim().orEmpty())
     .trimEnd('/')
-require(noveloServer.isEmpty() || noveloServer.startsWith("https://") || noveloServer.startsWith("http://")) { "NOVELO_SERVER_URL must be an http(s) address" }
+// Speech, photos and the backup's pieces go over it: https always (plain http only to this machine, for tests).
+require(noveloServer.isEmpty() || noveloServer.startsWith("https://") || Regex("^http://(127\\.0\\.0\\.1|localhost|10\\.0\\.2\\.2)(:\\d+)?(/.*)?$").matches(noveloServer)) {
+    "NOVELO_SERVER_URL must be an https:// address"
+}
 
 kotlin {
     jvmToolchain(21)
@@ -142,6 +145,8 @@ android {
                 it.systemProperty("novelo.shots", System.getenv("NOVELO_SHOTS") ?: "")
                 // The app against a novelo-server really running (NoveloLiveTest); empty: that test is skipped.
                 it.systemProperty("novelo.e2e", System.getenv("NOVELO_E2E_URL") ?: "")
+                // The unit tests run without the Novelo's server (never the real one: no phone registered there by a test).
+                it.systemProperty("novelo.server", "")
                 it.testLogging { events("failed", "skipped"); showStandardStreams = true }
             }
         }

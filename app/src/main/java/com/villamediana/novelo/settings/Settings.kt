@@ -154,7 +154,7 @@ class Settings(private val context: Context, scope: CoroutineScope) {
      * Who hears and sees until she says otherwise: the Novelo's own intelligence; in a build
      * without its server (the tests, a build made without the address), the model on the phone.
      */
-    private val onPhone = if (com.villamediana.novelo.BuildConfig.NOVELO_SERVER.isNotBlank()) Source.NOVELO else Source.LOCAL
+    private val onPhone = if (com.villamediana.novelo.server.ServerAddress.base.isNotBlank()) Source.NOVELO else Source.LOCAL
 
     val flow: Flow<NoveloSettings> = store.data.map { p ->
         NoveloSettings(

@@ -66,7 +66,7 @@ class AppGraph(context: Context) {
     val server: com.villamediana.novelo.server.NoveloServer by lazy {
         com.villamediana.novelo.server.NoveloServer(
             http = http,
-            base = BuildConfig.NOVELO_SERVER,
+            base = com.villamediana.novelo.server.ServerAddress.base,
             box = com.villamediana.novelo.server.KeystoreBox(),
             prefs = appContext.getSharedPreferences("novelo-server", Context.MODE_PRIVATE),
             install = { com.villamediana.novelo.server.Install.id(appContext) },
