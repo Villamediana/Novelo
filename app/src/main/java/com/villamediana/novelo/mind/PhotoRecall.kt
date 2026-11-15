@@ -16,7 +16,8 @@ data class Photo(val id: Long, val path: String, val takenAt: Long, val descript
  * entries: rarer words weigh more, a word's start finds the rest of it. The newest first on a tie.
  */
 class PhotoRecall(photos: List<Photo>) {
-    private val all = photos
+    /** The photos it searches. */
+    val all = photos
     private val words: Map<Long, Set<String>> = photos.associate { p -> p.id to Words.of("${p.description.orEmpty()} ${p.text.orEmpty()}").toSet() }
     private val df: Map<String, Int> = buildMap {
         words.values.forEach { set -> set.forEach { w -> put(w, (get(w) ?: 0) + 1) } }

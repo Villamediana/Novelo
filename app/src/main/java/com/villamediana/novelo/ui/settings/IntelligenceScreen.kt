@@ -288,7 +288,7 @@ private fun SourceLine(
  * (download, stop, or take it off). Off Wi-Fi, the download asks first: wait for it, or download anyway.
  */
 @Composable
-private fun LocalModelLine(model: LocalModel, state: LocalModel.State, name: String, onDelete: () -> Unit) {
+internal fun LocalModelLine(model: LocalModel, state: LocalModel.State, name: String, onDelete: () -> Unit) {
     val total = model.totalBytes
     val percent = NumberFormat.getPercentInstance(Lang.locale)
     var askWifi by remember { mutableStateOf(false) }

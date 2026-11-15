@@ -253,10 +253,10 @@ class KeeperAndMindTest {
         override suspend fun file(file: FileSeen, said: String?, look: ByteArray?): String? { asked += file to said; return next.removeFirstOrNull() }
     }
 
-    private fun mind(ears: Ears, thinker: Thinker, sync: ReminderSync = Synced(), recorder: Recorder = Recorder(), mic: com.villamediana.novelo.mind.MicHolder = NoMic, scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO), photos: PhotoReader = NoPhotos, offline: () -> Unit = {}, peek: FilePeek = NoPeek, about: About = NoAbout) = Mind(
+    private fun mind(ears: Ears, thinker: Thinker, sync: ReminderSync = Synced(), recorder: Recorder = Recorder(), mic: com.villamediana.novelo.mind.MicHolder = NoMic, scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO), photos: PhotoReader = NoPhotos, offline: () -> Unit = {}, peek: FilePeek = NoPeek, about: About = NoAbout, near: Nearby = Nearby.NONE) = Mind(
         scope = scope,
         db = db, recorder = recorder, hearing = ears, thinking = thinker, keeper = keeper(), reminders = sync,
-        photos = photos, mic = mic, dir = tmp.root, zone = { zone }, clock = { now }, offline = offline, peek = peek, about = about,
+        photos = photos, mic = mic, dir = tmp.root, zone = { zone }, clock = { now }, offline = offline, peek = peek, about = about, near = near,
     )
 
     private fun voiceFile(): File = tmp.newFile("v.wav").also { f ->
@@ -547,7 +547,8 @@ class KeeperAndMindTest {
         answered(m)
         watch.cancel()
         val steps = seen.filterIsInstance<MindState.Working>().map { Triple(it.stage, it.step, it.of) }.distinct()
-        assertTrue("$steps", Triple(Stage.SEEING, 1, 2) in steps && Triple(Stage.SEEING, 2, 2) in steps)
+        // Each photo read in turn, then one look at both.
+        assertTrue("$steps", Triple(Stage.READING, 1, 2) in steps && Triple(Stage.READING, 2, 2) in steps && Triple(Stage.SEEING, 0, 2) in steps)
         assertTrue("$steps", Triple(Stage.FILES, 1, 1) in steps)
         assertTrue("$steps", steps.any { it.first == Stage.THINKING })
     }
@@ -872,7 +873,7 @@ class KeeperAndMindTest {
     }
 
     @Test
-    fun photosFromTheGalleryGoOneByOneEachOnTheDayItWasTaken() = runBlocking {
+    fun photosFromTheGalleryGoTogetherEachOnTheDayItWasTaken() = runBlocking {
         val seen = """{"reply":"Guardei."}"""
         val thinker = FakeThinker(ArrayDeque(listOf(seen, seen)))
         val m = mind(FakeEars(""), thinker, photos = ReadsText("Ubatuba"))
@@ -881,15 +882,91 @@ class KeeperAndMindTest {
         val second = tmp.newFile("g2.jpg")
         m.photos(listOf(first to lastWeek, second to now))
         // Done when nothing is going through or waiting (what an import waits for).
-        withTimeout(10_000) { while (thinker.prompts.size < 2 || !m.idle || db.captures().unfinished().isNotEmpty()) kotlinx.coroutines.delay(20) }
+        withTimeout(10_000) { while (thinker.prompts.isEmpty() || !m.idle || db.captures().unfinished().isNotEmpty()) kotlinx.coroutines.delay(20) }
         val kept = db.captures().allPhotos().sortedBy { it.id }
         assertEquals(listOf(first.path, second.path), kept.map { it.imagePath }) // in the order picked
         assertEquals(listOf(lastWeek, now), kept.map { it.createdAt })
-        // Each one is its day's: last week's day gets its diary, and the model knows when it was taken.
+        assertTrue(kept.all { it.state == Capture.DONE })
+        // One think for both (the second one's turn in line had nothing left to do), each numbered with when it was taken.
+        assertEquals(1, thinker.prompts.size)
+        val prompt = thinker.prompts.single()
+        assertTrue(prompt, prompt.contains("AS FOTOS QUE ELA MANDOU JUNTO (2):\n1. 2026-11-04 16:20 · texto: Ubatuba\n2. 2026-11-11 10:00 · texto: Ubatuba\n"))
+        assertTrue(prompt, prompt.trimEnd().endsWith("ELA SÓ MANDOU AS FOTOS, SEM DIZER NADA."))
+        // Each one is its day's: last week's day gets its diary too.
         val thatDay = DayDiary.bounds(lastWeek, zone)
         assertEquals("Quarta-feira, 4 de novembro", db.entries().diariesBetween(thatDay.first, thatDay.last).single().title)
-        assertTrue(thinker.prompts[0], thinker.prompts[0].contains("O QUE ESTÁ NA FOTO (TIRADA EM quarta-feira, 2026-11-04 16:20):"))
-        assertTrue(thinker.prompts[1], thinker.prompts[1].contains("O QUE ESTÁ NA FOTO QUE ELA TIROU:"))
+        val today = DayDiary.bounds(now, zone)
+        assertEquals(1, db.entries().diariesBetween(today.first, today.last).size)
+    }
+
+    @Test
+    fun photosSentAloneTogetherEachGoesWhereItsNumberSays() = runBlocking {
+        // A receipt and a sunset picked together: one look at both, one think; the receipt is the note's, the sunset stays loose.
+        val made = """{"reply":"Guardei o recibo.","create":[{"kind":"note","title":"Recibo do Restaurante Sol","body":"R$ 32,00","photos":[1]}]}"""
+        val thinker = FakeThinker(ArrayDeque(listOf(made)))
+        val looks = mutableListOf<Int>()
+        val oneLook = object : About {
+            override suspend fun photo(image: ByteArray): String? = error("one by one")
+            override suspend fun photos(images: List<ByteArray>): List<String?> { looks += images.size; return listOf("um recibo do Restaurante Sol", "pôr do sol na praia") }
+            override suspend fun file(file: FileSeen, said: String?, look: ByteArray?): String? = null
+        }
+        val m = mind(FakeEars(""), thinker, photos = ReadsText("Restaurante Sol · R$ 32,00"), about = oneLook)
+        val receipt = tmp.newFile("recibo.jpg")
+        val sunset = tmp.newFile("sol.jpg")
+        m.photos(listOf(receipt to now - 60_000, sunset to now))
+        val a = answered(m)
+        assertEquals("Guardei o recibo.", a.reply)
+        withTimeout(10_000) { while (!m.idle || db.captures().unfinished().isNotEmpty()) kotlinx.coroutines.delay(20) }
+        assertEquals(listOf(2), looks) // one look, both photos
+        assertEquals(1, thinker.prompts.size)
+        assertTrue(thinker.prompts.single(), thinker.prompts.single().contains("1. 2026-11-11 09:59 · o que se vê: um recibo do Restaurante Sol · texto: Restaurante Sol · R$ 32,00\n2. 2026-11-11 10:00 · o que se vê: pôr do sol na praia"))
+        val (r, s) = db.captures().allPhotos().sortedBy { it.id }
+        assertEquals("um recibo do Restaurante Sol", r.description)
+        assertEquals("pôr do sol na praia", s.description)
+        val note = db.entries().all().single { it.kindEnum == com.villamediana.novelo.data.Kind.NOTE }
+        val lib = com.villamediana.novelo.data.Library(db, Synced())
+        // The receipt lives in the note (and out of the gallery); the sunset is in no item: loose.
+        assertEquals(listOf(r.id), lib.photosOf(note.id).first().map { it.id })
+        assertEquals(listOf(s.id), lib.loosePhotos().first().map { it.id })
+        assertEquals(setOf(note.id), com.villamediana.novelo.data.Attached.madeFrom(db.captures().get(r.id)!!))
+        assertTrue(com.villamediana.novelo.data.Attached.madeFrom(db.captures().get(s.id)!!).isEmpty())
+        // The newest keeps the whole answer (what the next turn looks back at).
+        assertEquals("Guardei o recibo.", db.captures().get(s.id)!!.reply)
+    }
+
+    @Test
+    fun photosTogetherThatCouldNotGoWaitAndGoTogetherAgain() = runBlocking {
+        val made = """{"reply":"Guardei.","create":[{"kind":"note","title":"Dois recibos","photos":[1,2]}]}"""
+        var down = true
+        val prompts = mutableListOf<String>()
+        val thinker = object : Thinker {
+            override suspend fun seesImages() = false
+            override suspend fun answer(system: String, user: String, image: ByteArray?): String {
+                if (down) throw java.io.IOException("sem rede")
+                prompts += user
+                return made
+            }
+        }
+        val m = mind(FakeEars(""), thinker, photos = ReadsText("recibo"))
+        m.photos(listOf(tmp.newFile("r1.jpg") to now - 1000, tmp.newFile("r2.jpg") to now))
+        withTimeout(10_000) { m.state.first { it is MindState.Problem } }
+        withTimeout(10_000) { while (!m.idle) kotlinx.coroutines.delay(20) }
+        // Nothing went: both wait (the second one's turn didn't try again on its own).
+        assertEquals(2, db.captures().unfinished().size)
+        assertTrue(prompts.isEmpty())
+        down = false
+        m.retryPending()
+        withTimeout(10_000) { while (prompts.isEmpty() || !m.idle || db.captures().unfinished().isNotEmpty()) kotlinx.coroutines.delay(20) }
+        assertEquals(1, prompts.size)
+        val note = db.entries().all().single { it.kindEnum == com.villamediana.novelo.data.Kind.NOTE }
+        assertEquals(db.captures().allPhotos().map { it.id }.sorted(), com.villamediana.novelo.data.Library(db, Synced()).photosOf(note.id).first().map { it.id }.sorted())
+    }
+
+    @Test
+    fun aPhotoSentAloneBefore174KeepsEverythingItMade() {
+        // Outcomes without photo numbers (a photo sent alone, as always): all it made is its.
+        val c = Capture(id = 5, createdAt = now, source = "photo", imagePath = "/x.jpg", state = Capture.DONE, outcomes = """[{"entryId":1,"action":"created"},{"entryId":2,"action":"updated","photos":true}]""")
+        assertEquals(setOf(1L, 2L), com.villamediana.novelo.data.Attached.madeFrom(c))
     }
 
     @Test
@@ -1012,5 +1089,26 @@ class KeeperAndMindTest {
         val e = db.entries().get(id)!!
         assertEquals("No Power Apps, com tela de aprovação.", e.body)
         assertEquals("App de aprovação", e.title)
+    }
+
+    @Test
+    fun whatIsNearByMeaningGoesToTheModelToo() = runBlocking {
+        // An old note, with no word of what she asks; six newer things push it out of the last ones.
+        val plumber = db.entries().insert(Entry(kind = "note", title = "Telefone do encanador", body = "Seu Zé, (11) 98765-4321", createdAt = now - 86_400_000L * 30, updatedAt = now - 86_400_000L * 30))
+        repeat(6) { db.entries().insert(Entry(kind = "note", title = "Outra coisa $it", createdAt = now - 1000L * it, updatedAt = now - 1000L * it)) }
+        val asked = mutableListOf<String>()
+        val near = object : Nearby {
+            override suspend fun near(text: String, kind: Int, allowed: Set<Long>?, limit: Int): List<SenseIndex.Near> {
+                asked += text
+                return if (kind == com.villamediana.novelo.data.Vector.KIND_ENTRY && allowed?.contains(plumber) == true) listOf(SenseIndex.Near(plumber, 0.7f, 0)) else emptyList()
+            }
+        }
+        val thinker = FakeThinker(ArrayDeque(listOf("""{"reply":"É o Seu Zé."}""")))
+        val m = mind(FakeEars(""), thinker, near = near)
+        m.write("hay algún número de reparos")
+        answered(m)
+        assertTrue(asked.contains("hay algún número de reparos"))
+        val prompt = thinker.prompts.single()
+        assertTrue(prompt, prompt.contains("LEMBRANÇAS QUE PODEM TER A VER:") && prompt.contains("Telefone do encanador"))
     }
 }

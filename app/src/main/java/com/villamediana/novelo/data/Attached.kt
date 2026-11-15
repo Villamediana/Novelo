@@ -19,11 +19,12 @@ object Attached {
 
     /**
      * The entries a photo sent alone turned into or changed (a receipt that became a note, a flyer
-     * that became a task): the photo is theirs too.
+     * that became a task): the photo is theirs too. Photos sent alone together (1.74.0) each went
+     * where the model said by its number: an entry given other photos of them isn't this one's.
      */
     fun madeFrom(photo: Capture): Set<Long> =
         if (photo.source != "photo" || photo.partOf != null) emptySet()
-        else outcomes(photo).filter { it.action != Outcome.DELETED }.map { it.entryId }.toSet()
+        else outcomes(photo).filter { it.action != Outcome.DELETED && (it.pics.isEmpty() || photo.id in it.pics) }.map { it.entryId }.toSet()
 
     /** The entries that hold [photo]: what it was sent with gave it to them, or it made them (sent alone). */
     fun homesOf(photo: Capture, byId: Map<Long, Capture>): Set<Long> =

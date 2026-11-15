@@ -100,4 +100,26 @@ class PiecesTest {
         org.junit.Assert.assertEquals(0.1f, l[0], 0.01f)
         f.delete()
     }
+
+    @Test
+    fun longSilencesGoShortAndSpeechStaysWhole() {
+        val rate = Wav.RATE
+        // 2 s of voice, 3 s of silence, 2 s of voice, a short pause of 0.5 s, 1 s of voice.
+        fun voice(sec: Double) = FloatArray((sec * rate).toInt()) { i -> (0.3 * sin(2 * PI * 220 * i / rate)).toFloat() }
+        fun quiet(sec: Double) = FloatArray((sec * rate).toInt()) { 0.0005f }
+        val s = voice(2.0) + quiet(3.0) + voice(2.0) + quiet(0.5) + voice(1.0)
+        val out = Pieces.squeeze(s)
+        // The 3 s silence keeps 0.4 s; the short pause stays as it was.
+        assertEquals((2.0 + 0.4 + 2.0 + 0.5 + 1.0) * rate, out.size.toDouble(), rate * 0.05)
+        // The voice is all there.
+        val loud = { a: FloatArray -> a.count { abs(it) > 0.1f } }
+        assertEquals(loud(s), loud(out))
+        // Nothing to squeeze: the same samples back.
+        val talk = voice(4.0)
+        assertTrue(Pieces.squeeze(talk) === talk)
+        // A whisper isn't silence, even next to loud talk.
+        val whisper = FloatArray(2 * rate) { i -> (0.02 * sin(2 * PI * 300 * i / rate)).toFloat() }
+        val mixed = voice(1.0) + whisper + voice(1.0)
+        assertEquals(mixed.size, Pieces.squeeze(mixed).size)
+    }
 }

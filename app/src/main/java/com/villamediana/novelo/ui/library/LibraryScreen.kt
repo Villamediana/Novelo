@@ -101,6 +101,8 @@ import com.villamediana.novelo.data.Kind
 import com.villamediana.novelo.data.Status
 import com.villamediana.novelo.remind.Repeat
 import com.villamediana.novelo.mind.Recall
+import com.villamediana.novelo.mind.Fuse
+import com.villamediana.novelo.data.Vector
 import com.villamediana.novelo.ui.entry.PhotoRow
 import com.villamediana.novelo.ui.components.Mosaic
 import com.villamediana.novelo.ui.components.PhotoTile
@@ -154,46 +156,45 @@ fun LibraryScreen(nav: Nav, screen: Screen.Library) {
     val recall by produceState<Recall?>(null, entries) { value = graph.library.recall() }
     var debounced by remember { mutableStateOf(query) }
     LaunchedEffect(query) { delay(180); debounced = query }
-    // …and by meaning: once she stops typing, Omni gives the words her notes may use for it, and
-    // what they find comes after what her own words found.
-    val byMeaning by produceState(false) { value = withContext(Dispatchers.IO) { graph.meaning.available() } }
-    LaunchedEffect(searching, byMeaning) { if (searching && byMeaning) graph.meaning.warm() }
-    var meant by remember { mutableStateOf<Pair<String, List<String>>?>(null) }
-    val asked = debounced.trim()
-    val looking = asked.isNotEmpty() && byMeaning && meant?.first != asked
-    LaunchedEffect(asked, byMeaning) {
-        if (asked.isEmpty() || !byMeaning) return@LaunchedEffect
-        delay(MEANING_PAUSE_MS)
-        meant = asked to runCatching { graph.meaning.words(asked) }.getOrElse { if (it is kotlinx.coroutines.CancellationException) throw it else emptyList() }
+    // …and by meaning: what she typed becomes numbers on the phone and is compared with every note,
+    // photo and file's (graph.senses): found both ways comes first, then each by how close it came.
+    LaunchedEffect(searching) { if (searching) graph.senses.warm() }
+    val senseIndex by graph.senses.index.collectAsStateWithLifecycle()
+    val meant by produceState<Pair<String, FloatArray?>?>(null, debounced) {
+        val asked = debounced.trim()
+        value = asked to (if (asked.isEmpty()) null else graph.senses.query(asked))
     }
-    val more = meant?.takeIf { it.first == asked }?.second.orEmpty()
-    val hits = remember(recall, debounced, more) {
+    val meaning = meant?.takeIf { it.first == debounced.trim() }?.second
+    val hits = remember(recall, debounced, meaning, senseIndex) {
         if (debounced.isBlank()) null else recall?.let { r ->
             val own = r.search(debounced, limit = 60)
-            val near = if (more.isEmpty()) emptyList() else r.search(more.joinToString(" "), limit = 60).filter { h -> own.none { it.entry.id == h.entry.id } }
-            (own + near).take(60)
+            val near = meaning?.let { q -> graph.senses.nearest(q, Vector.KIND_ENTRY).mapNotNull { n -> r.entry(n.id) } }.orEmpty()
+            val byId = own.associateBy { it.entry.id }
+            Fuse.rrf(own.map { it.entry }, near).take(60).map { e -> byId[e.id] ?: Recall.Hit(e, 0.0, emptySet()) }
         }
     }
-    val terms = remember(recall, debounced, more) { recall?.terms(debounced).orEmpty() + more }
+    val terms = remember(recall, debounced) { recall?.terms(debounced).orEmpty() }
     // The photos: the gallery, the day's diary, and the search (by what each one shows).
     val photos by graph.library.loosePhotos().collectAsStateWithLifecycle(initialValue = emptyList())
     val photoIndex = remember(photos) { PhotoRecall(photos) }
-    val photoHits = remember(photoIndex, debounced, more) {
+    val photoHits = remember(photoIndex, debounced, meaning, senseIndex) {
         if (debounced.isBlank()) emptyList() else {
             val own = photoIndex.search(debounced, limit = 30)
-            val near = if (more.isEmpty()) emptyList() else photoIndex.search(more.joinToString(" "), limit = 30).filter { p -> own.none { it.id == p.id } }
-            (own + near).take(30)
+            val byId = photos.associateBy { it.id }
+            val near = meaning?.let { q -> graph.senses.nearest(q, Vector.KIND_PHOTO, byId.keys, limit = 20).mapNotNull { byId[it.id] } }.orEmpty()
+            Fuse.rrf(own, near).take(30)
         }
     }
     val dayPhotos = remember(entries, photos) { DayPhotosIndex.of(entries.orEmpty(), photos, ZoneId.systemDefault()) }
     // The files: their tab, and the search (by name and what each one is) — none inside something sensitive.
     val files by remember { graph.library.files(withSensitive = false) }.collectAsStateWithLifecycle(initialValue = emptyList())
     val fileIndex = remember(files) { com.villamediana.novelo.mind.FileRecall(files) }
-    val fileHits = remember(fileIndex, debounced, more) {
+    val fileHits = remember(fileIndex, debounced, meaning, senseIndex) {
         if (debounced.isBlank()) emptyList() else {
             val own = fileIndex.search(debounced, limit = 20)
-            val near = if (more.isEmpty()) emptyList() else fileIndex.search(more.joinToString(" "), limit = 20).filter { f -> own.none { it.id == f.id } }
-            (own + near).take(20)
+            val byId = files.associateBy { it.id }
+            val near = meaning?.let { q -> graph.senses.nearest(q, Vector.KIND_FILE, byId.keys, limit = 12).mapNotNull { byId[it.id] } }.orEmpty()
+            Fuse.rrf(own, near).take(20)
         }
     }
 
@@ -318,7 +319,7 @@ fun LibraryScreen(nav: Nav, screen: Screen.Library) {
             val allTaken by graph.takenNow.collectAsStateWithLifecycle()
             val medHits = remember(allMeds, debounced) { com.villamediana.novelo.ui.meds.medsFound(allMeds.orEmpty(), debounced) }
             val nothing = hits.isEmpty() && photoHits.isEmpty() && fileHits.isEmpty() && medHits.isEmpty()
-            val found = listOf((if (nothing) t(if (looking) R.string.search_by_meaning else R.string.search_nothing) else null) to hits.map { it.entry })
+            val found = listOf((if (nothing) t(R.string.search_nothing) else null) to hits.map { it.entry })
             val medsLabel = t(R.string.tab_meds)
             Entries(
                 Filter.ALL, found, list.orEmpty(), terms = terms, showDone = false, onShowDone = {}, open = open, toggle = toggle, photos = photoHits, files = fileHits,
@@ -1057,5 +1058,3 @@ private fun Empty(filter: Filter) {
     }
 }
 
-/** How long she stops typing before the search by meaning starts (Omni takes a moment). */
-private const val MEANING_PAUSE_MS = 500L

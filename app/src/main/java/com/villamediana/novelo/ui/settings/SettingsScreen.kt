@@ -73,7 +73,7 @@ import com.villamediana.novelo.ui.theme.NoveloColors
 import com.villamediana.novelo.ui.update.UpdateRow
 
 /** The parts of Ajustes, each opened in place. */
-private enum class Part { AI, THEME, TABS, BACKUP, PRIVACY, LANGUAGE }
+private enum class Part { AI, THEME, TABS, BACKUP, PRIVACY, LANGUAGE, SENSE }
 
 /**
  * Ajustes: one page. Each part is a line that says in a few words how things are (in the accent
@@ -106,6 +106,14 @@ fun SettingsScreen(nav: Nav, openAi: Boolean = false) {
             ) { ThemeSection() }
             Fold(t(R.string.tabs_title), tabsSummary(s), false, open == Part.TABS, { toggle(Part.TABS) }) { TabsSection() }
             Fold(t(R.string.backup), backup.first, backup.second, open == Part.BACKUP, { toggle(Part.BACKUP) }) { BackupSection() }
+            // The search by meaning's model: it comes by itself on the first Wi-Fi; here she sees it, or brings it now.
+            if (LocalEngine.available) {
+                val sense by graph.senseModel.state.collectAsStateWithLifecycle()
+                Fold(t(R.string.sense_title), localShort(sense), sense is LocalModel.State.Failed, open == Part.SENSE, { toggle(Part.SENSE) }) {
+                    Group(Modifier, { LocalModelLine(graph.senseModel, sense, t(R.string.local_pack_sense), onDelete = { graph.senseModel.delete() }) })
+                    Text(t(R.string.sense_about), style = MaterialTheme.typography.bodySmall, color = NoveloColors.TextMuted, modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 10.dp))
+                }
+            }
             Fold(t(R.string.privacy), if (s.lockSensitive) t(R.string.privacy_on) else t(R.string.privacy_off), false, open == Part.PRIVACY, { toggle(Part.PRIVACY) }) { PrivacySection() }
             Fold(t(R.string.language), Lang.current.label, false, open == Part.LANGUAGE, { toggle(Part.LANGUAGE) }) { LanguagePicker() }
 

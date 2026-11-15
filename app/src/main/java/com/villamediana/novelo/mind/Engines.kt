@@ -86,16 +86,20 @@ internal fun noveloNeed(server: NoveloServer): String? = when {
 }
 
 /** A chat request as the Novelo's server takes it (it puts the model). */
-internal fun chatBody(system: String, user: String, image: ByteArray? = null, audio: ByteArray? = null, json: Boolean = false, effort: String? = null): JsonObject = buildJsonObject {
+internal fun chatBody(system: String, user: String, image: ByteArray? = null, audio: ByteArray? = null, json: Boolean = false, effort: String? = null, images: List<ByteArray> = listOfNotNull(image)): JsonObject = buildJsonObject {
     putJsonArray("messages") {
         addJsonObject { put("role", "system"); put("content", system) }
         addJsonObject {
             put("role", "user")
-            if (image == null && audio == null) put("content", user) else putJsonArray("content") {
+            if (images.isEmpty() && audio == null) put("content", user) else putJsonArray("content") {
                 if (user.isNotEmpty()) addJsonObject { put("type", "text"); put("text", user) }
-                if (image != null) addJsonObject {
-                    put("type", "image_url")
-                    putJsonObject("image_url") { put("url", "data:image/jpeg;base64," + Base64.encodeToString(image, Base64.NO_WRAP)); put("detail", "low") }
+                // Several photos: each comes after its number, so each answer is the right photo's.
+                images.forEachIndexed { i, img ->
+                    if (images.size > 1) addJsonObject { put("type", "text"); put("text", "${i + 1}:") }
+                    addJsonObject {
+                        put("type", "image_url")
+                        putJsonObject("image_url") { put("url", "data:image/jpeg;base64," + Base64.encodeToString(img, Base64.NO_WRAP)); put("detail", "low") }
+                    }
                 }
                 if (audio != null) addJsonObject {
                     put("type", "input_audio")
@@ -175,7 +179,8 @@ class Hearing(
         if (Pieces.isSilent(piece)) return ""
         val file = File(tmp, "piece-${System.nanoTime()}.wav")
         val wav = try {
-            Wav.write(file, piece)
+            // Her long silences made short: paid by the second, waited for by the byte.
+            Wav.write(file, Pieces.squeeze(piece))
             file.readBytes()
         } finally {
             file.delete()
@@ -196,11 +201,12 @@ class Hearing(
         if (parts.size > 1 && start.pieces < parts.size) onPiece(Heard(done, start.pieces, by, parts.size))
         for ((i, p) in parts.withIndex()) {
             if (i < start.pieces) continue
-            val file = if (p == null) wav else File(tmp, "piece-${System.nanoTime()}.wav").also { Wav.write(it, p) }
+            // What goes is a copy with her long silences made short (paid by the minute); the recording stays whole.
+            val file = File(tmp, "piece-${System.nanoTime()}.wav").also { Wav.write(it, Pieces.squeeze(p ?: samples)) }
             try {
                 done = join(done, api.transcribe(ep, a.model, file, null))
             } finally {
-                if (p != null) file.delete()
+                file.delete()
             }
             onPartial(done)
             onPiece(Heard(done, i + 1, by, parts.size))
@@ -296,23 +302,6 @@ class Thinking(
         engine.cancel()
         api.cancelAll()
         server.cancel()
-    }
-
-    /** Whoever thinks can be asked now (set up, and — the Novelo's — still answering this phone). */
-    suspend fun ready(): Boolean = readiness(settings.current()) == null
-
-    /**
-     * A short answer that isn't a plan (the words for a search), asked plainly of whoever thinks:
-     * no JSON mode, no second model. Null when nobody can be asked now.
-     */
-    suspend fun plain(system: String, user: String): String? = withContext(Dispatchers.IO) {
-        val s = settings.current()
-        if (readiness(s) != null) return@withContext null
-        when (s.think) {
-            Source.NOVELO -> server.ask("think", chatBody(system, user, effort = "low")).text
-            Source.API -> api.chat(s.endpoint(settings.apiKey().orEmpty()), s.thinkModel, system, user, jsonOut = false)
-            Source.LOCAL -> null
-        }
     }
 
     override suspend fun answer(system: String, user: String, image: ByteArray?): String = withContext(Dispatchers.IO) {

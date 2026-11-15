@@ -2,3 +2,4 @@
 -dontobfuscate
 -keep class com.villamediana.novelo.local.LocalEngine { *; }
 -keep class com.villamediana.novelo.local.TokenSink { *; }
+-keep class com.villamediana.novelo.local.SenseEngine { *; }

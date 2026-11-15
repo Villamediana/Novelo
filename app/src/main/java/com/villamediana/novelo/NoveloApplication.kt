@@ -31,6 +31,14 @@ class NoveloApplication : Application() {
         graph.scope.launch { runCatching { graph.library.fixRepeats() } }
         // A backup after every change in what she keeps (and the daily one besides).
         graph.scope.launch { runCatching { graph.backups.watch(graph.db) } }
+        // The search by meaning: the meanings kept up to date, and its model on the first Wi-Fi (once).
+        graph.scope.launch {
+            runCatching {
+                graph.senses.watch()
+                graph.senses.soon()
+                if (com.villamediana.novelo.local.LocalEngine.available && !graph.senseModel.ready) graph.senseModel.download(wifiOnly = true)
+            }
+        }
         // The automatic backup, as Ajustes has it (kept when it is already scheduled).
         graph.scope.launch { runCatching { BackupWorker.schedule(this@NoveloApplication, graph.settings.current(), replace = false) } }
         if (graph.updates.enabled) runCatching { UpdateCheckWorker.schedule(this) }

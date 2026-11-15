@@ -1,4 +1,5 @@
-// Novelo's on-device model: LFM3-Omni through llama.cpp (libllama + libmtmd).
+// Novelo's on-device models through llama.cpp (libllama + libmtmd): LFM3-Omni, and EmbeddingGemma 2
+// for the search by meaning (SenseEngine, at the end; its core is novelo_sense.h).
 //
 // Two jobs, one model in memory:
 //   transcribe(): 16 kHz PCM in, the text that was said out ("Perform ASR" system prompt);
@@ -22,6 +23,7 @@
 #include "llama.h"
 #include "mtmd.h"
 #include "mtmd-helper.h"
+#include "novelo_sense.h"
 
 #define TAG "NoveloEngine"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
@@ -535,6 +537,32 @@ Java_com_villamediana_novelo_local_LocalEngine_nativeGenerate(JNIEnv * env, jobj
     std::string out = sample_loop(e, bias, gram, n_past, room, sink);
     free_samplers(bias, gram);
     return to_bytes(env, out);
+}
+
+// ------------------------------------------------------------------ the search by meaning
+
+JNIEXPORT jlong JNICALL
+Java_com_villamediana_novelo_local_SenseEngine_nativeLoad(JNIEnv * env, jobject, jstring jmodel, jint threads, jint n_ctx) {
+    llama_log_set(log_to_android, nullptr);
+    const std::string path = jstr(env, jmodel);
+    novelo_sense::Sense * s = novelo_sense::load(path.c_str(), threads, n_ctx);
+    if (!s) LOGE("sense model load failed: %s", path.c_str());
+    return reinterpret_cast<jlong>(s);
+}
+
+JNIEXPORT jfloatArray JNICALL
+Java_com_villamediana_novelo_local_SenseEngine_nativeEmbed(JNIEnv * env, jobject, jlong h, jbyteArray jtext) {
+    auto * s = reinterpret_cast<novelo_sense::Sense *>(h);
+    std::vector<float> out;
+    if (!novelo_sense::embed(s, jbytes(env, jtext), out)) return nullptr;
+    jfloatArray arr = env->NewFloatArray((jsize) out.size());
+    if (arr) env->SetFloatArrayRegion(arr, 0, (jsize) out.size(), out.data());
+    return arr;
+}
+
+JNIEXPORT void JNICALL
+Java_com_villamediana_novelo_local_SenseEngine_nativeFree(JNIEnv *, jobject, jlong h) {
+    novelo_sense::free_sense(reinterpret_cast<novelo_sense::Sense *>(h));
 }
 
 } // extern "C"

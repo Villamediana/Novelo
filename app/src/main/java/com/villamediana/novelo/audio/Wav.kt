@@ -153,6 +153,51 @@ object Pieces {
     fun nextWhole(samples: FloatArray, maxSeconds: Int, rate: Int = Wav.RATE): FloatArray? =
         if (samples.size <= maxSeconds * rate) null else cut(samples, maxSeconds, rate).first()
 
+    /**
+     * [samples] with her long silences made short: a quiet stretch longer than [longMs] keeps only
+     * [keepMs] of itself (half at each end), so a pause still reads as a pause. Quiet here is far
+     * under her voice (a fiftieth of its loud part, ~17 dB down) and never more than a whisper's
+     * level. What goes to a model that hears is paid by the second and waited for by the byte;
+     * thinking in silence is free. The recording itself is never changed.
+     */
+    fun squeeze(samples: FloatArray, rate: Int = Wav.RATE, longMs: Int = 1_000, keepMs: Int = 400): FloatArray {
+        val frame = rate / 50 // 20 ms
+        val n = samples.size / frame
+        if (n * 20 < longMs) return samples
+        val e = DoubleArray(n) { energy(samples, it * frame, frame) }
+        val loud = e.sorted()[(n * 0.8).toInt().coerceAtMost(n - 1)]
+        val quiet = minOf(maxOf(loud * 0.02, 1e-9), QUIET_CEILING)
+        val keep = keepMs / 20
+        val out = FloatArray(samples.size)
+        var size = 0
+        fun copy(fromFrame: Int, toFrame: Int) {
+            val a = fromFrame * frame
+            val b = (toFrame * frame).coerceAtMost(samples.size)
+            if (b <= a) return
+            System.arraycopy(samples, a, out, size, b - a)
+            size += b - a
+        }
+        var i = 0
+        while (i < n) {
+            if (e[i] > quiet) { copy(i, i + 1); i++; continue }
+            var j = i
+            while (j < n && e[j] <= quiet) j++
+            if ((j - i) * 20 > longMs) {
+                copy(i, i + keep / 2)
+                copy(j - (keep - keep / 2), j)
+            } else {
+                copy(i, j)
+            }
+            i = j
+        }
+        // The last bit shorter than a frame goes as it is.
+        if (n * frame < samples.size) { System.arraycopy(samples, n * frame, out, size, samples.size - n * frame); size += samples.size - n * frame }
+        return if (size == samples.size) samples else out.copyOf(size)
+    }
+
+    /** Never quieter than a whisper counts as silence (RMS ~0.006), however loud she talks. */
+    private const val QUIET_CEILING = 0.006 * 0.006
+
     /** True when there is (almost) only silence: nothing to transcribe. */
     fun isSilent(samples: FloatArray, rate: Int = Wav.RATE): Boolean {
         if (samples.size < rate / 3) return true
