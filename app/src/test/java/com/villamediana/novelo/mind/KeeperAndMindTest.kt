@@ -231,13 +231,22 @@ class KeeperAndMindTest {
         override fun hold() { calls += "hold" }
         override fun release() { calls += "release" }
         override fun working(on: Boolean) { working = on; calls += "working:$on" }
+        override fun closingSoon(ticks: Int) { calls += "soon:$ticks" }
+        override fun closedByItself() { calls += "closed" }
     }
 
     /** A microphone that "records" a ready WAV. */
     private class FakeRecorder(val wav: () -> File) : Recorder() {
         var starts = 0
         private var on = false
+        /** How it seems while "recording": quiet this long, open this long, her voice heard or not. */
+        @Volatile var quiet = 0L
+        @Volatile var open = 0L
+        @Volatile var voice = false
         override val isRecording: Boolean get() = on
+        override fun quietMs(): Long = if (on) quiet else 0L
+        override fun elapsedMs(): Long = if (on) open else 0L
+        override val heardVoice: Boolean get() = voice
         override fun start(target: File): Boolean { starts++; on = true; return true }
         override fun stop(): Pair<File, Long>? { if (!on) return null; on = false; return wav() to 2000L }
     }
@@ -253,10 +262,11 @@ class KeeperAndMindTest {
         override suspend fun file(file: FileSeen, said: String?, look: ByteArray?): String? { asked += file to said; return next.removeFirstOrNull() }
     }
 
-    private fun mind(ears: Ears, thinker: Thinker, sync: ReminderSync = Synced(), recorder: Recorder = Recorder(), mic: com.villamediana.novelo.mind.MicHolder = NoMic, scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO), photos: PhotoReader = NoPhotos, offline: () -> Unit = {}, peek: FilePeek = NoPeek, about: About = NoAbout, near: Nearby = Nearby.NONE) = Mind(
+    private fun mind(ears: Ears, thinker: Thinker, sync: ReminderSync = Synced(), recorder: Recorder = Recorder(), mic: com.villamediana.novelo.mind.MicHolder = NoMic, scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO), photos: PhotoReader = NoPhotos, offline: () -> Unit = {}, peek: FilePeek = NoPeek, about: About = NoAbout, near: Nearby = Nearby.NONE, answerFor: Long = Mind.ANSWER_MS) = Mind(
         scope = scope,
         db = db, recorder = recorder, hearing = ears, thinking = thinker, keeper = keeper(), reminders = sync,
         photos = photos, mic = mic, dir = tmp.root, zone = { zone }, clock = { now }, offline = offline, peek = peek, about = about, near = near,
+        answerFor = answerFor,
     )
 
     private fun voiceFile(): File = tmp.newFile("v.wav").also { f ->
@@ -294,6 +304,79 @@ class KeeperAndMindTest {
         assertTrue(m.startListening(locked = false))
         assertEquals(2, rec.starts)
         m.cancelListening()
+    }
+
+    @Test
+    fun aMicrophoneForgottenOpenClosesByItselfAndNothingIsKept() = runBlocking {
+        val holder = Holder()
+        val rec = FakeRecorder { voiceFile() }.apply { quiet = Mind.QUIET_MS }
+        val m = mind(FakeEars("nada"), FakeThinker(ArrayDeque()), recorder = rec, mic = holder)
+        assertTrue(m.startListening(locked = true))
+        val p = withTimeout(10_000) { m.state.first { it is MindState.Problem } } as MindState.Problem
+        // She is told why it closed (and the phone buzzed), and there is nothing to hear or keep.
+        assertTrue(p.message, p.message.contains("2"))
+        assertNull(p.captureId)
+        assertTrue(holder.calls.toString(), "closed" in holder.calls)
+        assertTrue(!rec.isRecording)
+        assertTrue(db.captures().unfinished().isEmpty())
+        // And the button records again.
+        assertTrue(m.startListening(locked = false))
+        m.cancelListening()
+    }
+
+    @Test
+    fun quietAfterSheSpokeItClosesAndWhatSheSaidGoesOn() = runBlocking {
+        val holder = Holder()
+        val rec = FakeRecorder { voiceFile() }.apply { voice = true; quiet = Mind.QUIET_MS }
+        val m = mind(FakeEars("comprar pão"), FakeThinker(ArrayDeque(listOf("""{"reply":"Anotei."}"""))), recorder = rec, mic = holder)
+        assertTrue(m.startListening(locked = true))
+        assertEquals("Anotei.", answered(m).reply)
+        assertTrue(holder.calls.toString(), "closed" in holder.calls)
+    }
+
+    @Test
+    fun openTooLongItClosesEvenWithSound() = runBlocking {
+        val rec = FakeRecorder { voiceFile() }.apply { voice = true; open = Mind.LONGEST_MS }
+        val m = mind(FakeEars("e a novela continua"), FakeThinker(ArrayDeque(listOf("""{"reply":"Guardei."}"""))), recorder = rec)
+        assertTrue(m.startListening(locked = true))
+        assertEquals("Guardei.", answered(m).reply)
+    }
+
+    @Test
+    fun nearTheLongestSheFeelsItMoreTheCloserItGets() = runBlocking {
+        val holder = Holder()
+        val rec = FakeRecorder { voiceFile() }.apply { voice = true }
+        val m = mind(FakeEars("uma história longa"), FakeThinker(ArrayDeque(listOf("""{"reply":"Guardei."}"""))), recorder = rec, mic = holder)
+        assertTrue(m.startListening(locked = true))
+        // The screen knows when it closes.
+        assertEquals(now + Mind.LONGEST_MS, (m.state.value as MindState.Listening).closesAt)
+        suspend fun after(open: Long, call: String) {
+            rec.open = open
+            withTimeout(5_000) { while (call !in holder.calls) kotlinx.coroutines.delay(50) }
+        }
+        after(Mind.LONGEST_MS - 110_000, "soon:1")
+        after(Mind.LONGEST_MS - 55_000, "soon:2")
+        after(Mind.LONGEST_MS - 25_000, "soon:3")
+        assertTrue("${m.state.value}", m.state.value is MindState.Listening)
+        after(Mind.LONGEST_MS, "closed")
+        assertEquals("Guardei.", answered(m).reply)
+        // Each warning once, in order, and then it closed.
+        assertEquals(listOf("soon:1", "soon:2", "soon:3", "closed"), holder.calls.filter { it.startsWith("soon") || it == "closed" })
+    }
+
+    @Test
+    fun theAnswerLeavesTheScreenByItselfUnlessSheIsReadingIt() = runBlocking {
+        val m = mind(FakeEars("x"), FakeThinker(ArrayDeque(listOf("""{"reply":"Anotei."}"""))), answerFor = 1_500)
+        m.write("comprar pão")
+        answered(m)
+        // A touch on it starts its time again: still there after the first 1.5 s…
+        kotlinx.coroutines.delay(1_000)
+        m.reading()
+        kotlinx.coroutines.delay(1_000)
+        assertTrue("${m.state.value}", m.state.value is MindState.Answer)
+        // …and gone by itself after that (an app opened later starts clean).
+        withTimeout(5_000) { m.state.first { it == MindState.Idle } }
+        Unit
     }
 
     @Test

@@ -5,7 +5,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.captureToImage
@@ -1810,6 +1812,29 @@ class ScreensTest {
         shot("17-listening-cancel")
         compose.onNode(androidx.compose.ui.test.hasContentDescription("Cancelar")).performClick()
         assertTrue(cancelled)
+    }
+
+    @Test
+    fun nearTheLongestItSaysQuietlyWhenItCloses() {
+        val now = System.currentTimeMillis()
+        var startedAt by androidx.compose.runtime.mutableLongStateOf(now - 5 * 60_000L)
+        compose.setContent {
+            NoveloTheme(ThemeMode.LIGHT) {
+                Box(Modifier.fillMaxSize().background(NoveloColors.Background)) {
+                    androidx.compose.foundation.layout.Column(Modifier.align(androidx.compose.ui.Alignment.Center), horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
+                        com.villamediana.novelo.ui.home.ListeningText(MindState.Listening(startedAt = startedAt, locked = true, focusId = null, closesAt = startedAt + com.villamediana.novelo.mind.Mind.LONGEST_MS), inCancelZone = false, onCancel = {})
+                    }
+                }
+            }
+        }
+        // Far from it: nothing said.
+        assertTrue(compose.onAllNodesWithTag("closes-in").fetchSemanticsNodes().isEmpty())
+        // Two minutes before: a small line under the clock.
+        startedAt = now - (com.villamediana.novelo.mind.Mind.LONGEST_MS - 90_000L)
+        compose.waitUntil(3_000) { compose.onAllNodesWithTag("closes-in").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("fecha sozinho em 1:", substring = true).assertExists()
+        compose.mainClock.advanceTimeBy(500)
+        shot("17b-listening-closes-soon")
     }
 
     @Test

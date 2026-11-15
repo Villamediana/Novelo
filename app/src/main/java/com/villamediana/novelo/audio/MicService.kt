@@ -6,10 +6,14 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -161,6 +165,21 @@ class AndroidMicHolder(private val context: Context) : MicHolder {
             val s = MicService.instance
             if (s != null && MicService.running) s.refresh() else if (on) start()
         }
+    }
+
+    /** Closing soon: [ticks] light, short touches (soft where the phone can make them soft). */
+    override fun closingSoon(ticks: Int) = buzz(ticks, onMs = 30, strength = 90)
+
+    /** Two short buzzes ("tic-tic"): the microphone closed by itself. Still in the foreground then, so Android lets it buzz. */
+    override fun closedByItself() = buzz(2, onMs = 60, strength = VibrationEffect.DEFAULT_AMPLITUDE)
+
+    private fun buzz(times: Int, onMs: Long, strength: Int) {
+        val buzzer = if (Build.VERSION.SDK_INT >= 31) context.getSystemService(VibratorManager::class.java)?.defaultVibrator
+        else @Suppress("DEPRECATION") context.getSystemService(Vibrator::class.java)
+        // Wait, on, gap, on…: the first wait is none.
+        val timings = LongArray(times * 2) { i -> if (i % 2 == 1) onMs else if (i == 0) 0L else 110L }
+        val strengths = IntArray(times * 2) { i -> if (i % 2 == 1) strength else 0 }
+        runCatching { buzzer?.takeIf { it.hasVibrator() }?.vibrate(VibrationEffect.createWaveform(timings, strengths, -1)) }
     }
 
     private fun start() {

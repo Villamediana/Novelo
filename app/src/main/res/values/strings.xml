@@ -237,6 +237,8 @@
     <string name="accent_ameixa">Ameixa</string>
     <string name="mic_failed">Não consegui abrir o microfone.</string>
     <string name="heard_nothing">Não ouvi nada. Tente de novo, um pouco mais perto.</string>
+    <string name="closed_quiet">Fechei o microfone: %d minutos sem ouvir você.</string>
+    <string name="closes_in">fecha sozinho em %s</string>
     <string name="read_nothing">Não consegui ler nada na foto. Tente de mais perto, com mais luz.</string>
     <string name="api_answered">A API respondeu %1$d: %2$s</string>
     <string name="offline_kept">Sem conexão agora. Guardei; vai sozinho quando a internet voltar.</string>

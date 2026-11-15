@@ -375,6 +375,24 @@ Novelo backup.zip
   silêncios longos encurtados (`Pieces.squeeze`: mais de 1 s quieto fica com 0,4 s, metade em cada ponta; quieto é
   ~17 dB abaixo da voz dela e nunca acima de um sussurro). Ouvir é pago por segundo e esperado por byte; a gravação
   guardada não muda, e os pedaços (e o recomeço de onde parou) seguem os mesmos.
+- **Microfone esquecido fecha sozinho**: o `Recorder` marca a última vez que ouviu voz (`quietMs`: 60 ms seguidos acima
+  do nível que `Pieces.isSilent` ouve como som, então uma batida sozinha não conta) e o `Mind.watch` olha a cada segundo:
+  2 min sem voz (`QUIET_MS`) ou 15 min aberto (`LONGEST_MS`, pra TV ligada, que não é silêncio) fecham como o "parar".
+  O celular vibra duas vezes curtas (`MicHolder.closedByItself`, permissão `VIBRATE`; ainda em primeiro plano, então
+  vibra com a tela apagada). O que ela disse segue normal; sem voz nenhuma, nada é guardado nem ouvido e a tela diz
+  `closed_quiet`. Quem fecha a gravação (botão, notificação ou o `watch`) pega o `live` (`takeLive`): só um fecha.
+  Chegando nos 15 min ela sente, de leve e cada vez mais (`Mind.CLOSING_SOON`): 1 toque fraco faltando 2 min, 2 faltando
+  1 min, 3 faltando 30 s (`MicHolder.closingSoon`, curtos e suaves onde o celular regula a força; o fechar é mais firme).
+  Na tela, embaixo do relógio, uma linha pequena "fecha sozinho em 1:59" nos últimos 2 min (`Listening.closesAt`,
+  `CLOSING_SHOWN_MS`), apagada e no acento nos últimos 30 s: dá pra parar e gravar de novo.
+- **A resposta passa**: resposta (e aviso que não pede nada, sem captura nem ajuste) sai da tela sozinha 30 s depois
+  (`ANSWER_MS`, `Mind.fade`), mesmo com o app fechado — então quem abre depois encontra o Novelo pronto pra ouvir. Um
+  toque na resposta (ler, rolar, um cartão) recomeça os 30 s (`Mind.reading`).
+- **Ver e pensar continuam separados** (pensado na 1.75): juntar o olhar ao pensar pouparia só as instruções do olhar
+  (~80 tokens) e a descrição relida (~100), mas a imagem iria em toda nova chamada de pensar (busca, outro modelo), o
+  pensar teria que ver imagens (menos modelos e sem os grátis) e a descrição precisa existir sozinha (busca, sentido).
+  Ouvir em pedaços de 28 s custa o mesmo que de uma vez (as instruções de ouvir, ~60 tokens, a mais por pedaço; o
+  silêncio já vai encurtado e pedaço calado nem sai) e deixa ouvir enquanto ela fala.
 
 ## Motor no celular
 
