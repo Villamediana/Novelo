@@ -298,6 +298,23 @@ class Thinking(
         server.cancel()
     }
 
+    /** Whoever thinks can be asked now (set up, and — the Novelo's — still answering this phone). */
+    suspend fun ready(): Boolean = readiness(settings.current()) == null
+
+    /**
+     * A short answer that isn't a plan (the words for a search), asked plainly of whoever thinks:
+     * no JSON mode, no second model. Null when nobody can be asked now.
+     */
+    suspend fun plain(system: String, user: String): String? = withContext(Dispatchers.IO) {
+        val s = settings.current()
+        if (readiness(s) != null) return@withContext null
+        when (s.think) {
+            Source.NOVELO -> server.ask("think", chatBody(system, user, effort = "low")).text
+            Source.API -> api.chat(s.endpoint(settings.apiKey().orEmpty()), s.thinkModel, system, user, jsonOut = false)
+            Source.LOCAL -> null
+        }
+    }
+
     override suspend fun answer(system: String, user: String, image: ByteArray?): String = withContext(Dispatchers.IO) {
         val s = settings.current()
         readiness(s)?.let { throw NotReady(Need.THINK, it) }

@@ -104,6 +104,12 @@ class NoveloServer(
         get() = prefs.getString(DEVICE, null)?.takeIf { box.exists }
         set(value) = prefs.edit().putString(DEVICE, value).apply()
 
+    /**
+     * This phone as the server knows it, short enough to read out: what she tells when she asks for
+     * what the server keeps of her phone to be erased. Null while the phone never registered.
+     */
+    val code: String? get() = runCatching { device?.take(10) }.getOrNull()
+
     /** The server's clock minus the phone's (a phone with the wrong time still signs right). */
     private var skew: Long
         get() = prefs.getLong(SKEW, 0)

@@ -120,6 +120,9 @@ fun SettingsScreen(nav: Nav, openAi: Boolean = false) {
                         Column {
                             Text("Novelo", style = MaterialTheme.typography.titleLarge, color = NoveloColors.Text)
                             Text(t(R.string.version, BuildConfig.VERSION_NAME), style = MaterialTheme.typography.bodySmall, color = NoveloColors.TextMuted)
+                            // The phone's code on the Novelo's server (what she quotes to have its record erased).
+                            val device = remember { graph.server.code }
+                            if (device != null) Text(t(R.string.device_code, device), style = MaterialTheme.typography.bodySmall, color = NoveloColors.TextFaint)
                         }
                     }
                 },

@@ -401,6 +401,10 @@ continua dono da lógica: monta o pedido inteiro e o servidor só escolhe o mode
   (`SHOW_INTELLIGENCE = false`, `intelligenceShown`) enquanto ela está toda no Novelo e ele atende.
 - **Fora do app desde a 1.73.0**: a chave da OpenRouter embutida (`NoveloKey`) e o rodízio de modelos grátis (`NoveloModels`); o
   rodízio agora é o último recurso do servidor.
+- **Busca por sentido** (`Meaning`): com o Omni no celular, é nele (nada sai do aparelho); sem ele, quem pensa dá as palavras
+  (`Thinking.plain`: só o que ela digitou na busca vai, pedido simples, uma vez por busca).
+- **Código do aparelho**: Ajustes, embaixo da versão (`NoveloServer.code`): é o que ela informa pra pedir que o servidor
+  apague o registro do aparelho dela.
 - **Build**: `NOVELO_SERVER_URL` em `~/.config/novelo/server.env` → `BuildConfig.NOVELO_SERVER`.
 
 ## Backup na nuvem (1.73.0)

@@ -88,8 +88,8 @@ class AppGraph(context: Context) {
     val takenNow: kotlinx.coroutines.flow.StateFlow<List<com.villamediana.novelo.data.MedTaken>?> by lazy {
         library.allTaken().stateIn(scope, kotlinx.coroutines.flow.SharingStarted.Eagerly, null)
     }
-    /** The search by meaning: Omni gives the words her notes may use for what she looks for. */
-    val meaning: Meaning by lazy { Meaning(engine, localModel) }
+    /** The search by meaning: the words her notes may use for what she looks for — from Omni on the phone, else from whoever thinks. */
+    val meaning: Meaning by lazy { Meaning(engine, localModel, online = { system, user -> thinking.plain(system, user) }, onlineReady = { thinking.ready() }) }
     /** What she was writing and didn't send (kept a day). */
     val draft: Draft by lazy { Draft(appContext.getSharedPreferences("draft", Context.MODE_PRIVATE)) }
 

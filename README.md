@@ -14,7 +14,7 @@ Pessoas, lugares, projetos e assuntos citados viram nós de um **grafo**. É ele
 
 A **câmera** do app lê o que está na foto (um papel, um quadro, um recibo) e guarda do mesmo jeito; a foto também vai pra galeria do celular na hora.
 
-A **busca** acha pelas palavras; com o modelo do celular baixado, também pelo sentido (o Omni lembra as outras palavras que podem ter sido usadas pra mesma coisa).
+A **busca** acha pelas palavras e pelo sentido: as outras palavras que podem ter sido usadas pra mesma coisa vêm do Omni, no próprio celular, ou de quem pensa quando ele não está baixado (só o que foi digitado na busca vai).
 
 ## Primeiros passos
 

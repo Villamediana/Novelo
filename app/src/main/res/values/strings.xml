@@ -539,4 +539,5 @@
     <string name="cloud_looking">procurando seu backup…</string>
     <string name="setup_backup_line_any">Na nuvem do Novelo, numa pasta do celular, ou nos dois. Assim nada se perde.</string>
     <string name="backup_cloud_only">na nuvem</string>
+    <string name="device_code">aparelho %1$s</string>
 </resources>

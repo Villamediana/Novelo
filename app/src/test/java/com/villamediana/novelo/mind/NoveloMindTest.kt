@@ -95,6 +95,35 @@ class NoveloMindTest {
     }
 
     @Test
+    fun withoutTheModelOnThePhoneWhoeverThinksGivesTheWordsOfASearch() = runBlocking {
+        val thinking = Thinking(st, graph.api, graph.engine, graph.localModel, server)
+        val meaning = Meaning(graph.engine, graph.localModel, online = { system, user -> thinking.plain(system, user) }, onlineReady = { thinking.ready() })
+        // This build has no model on the phone: the Novelo's own intelligence is asked.
+        assertFalse(meaning.onPhone)
+        assertTrue(meaning.available())
+        fake.reply = { _, _ -> fake.answer("```json\n[\"mercado\", \"compras\", \"supermercado\", \"pão\"]\n```") }
+        assertEquals(listOf("mercado", "compras", "supermercado"), meaning.words("pão da padaria"))
+        assertEquals("think", fake.asks.single().job)
+        // Only what she typed goes, asked plainly (a list, not a plan).
+        assertTrue(fake.asks.single().body.contains("pão da padaria"))
+        assertFalse(fake.asks.single().body.contains("json_object"))
+        // The same search again asks nobody.
+        assertEquals(3, meaning.words("pão da  padaria").size)
+        assertEquals(1, fake.asks.size)
+        // An answer that is no list: no words, and the search by her own words goes on as always.
+        fake.reply = { _, _ -> fake.answer("não sei") }
+        assertTrue(meaning.words("contrato").isEmpty())
+        // Nobody to ask (the Novelo's is over for this phone, no API of hers): it isn't offered.
+        fake.reply = { _, _ -> fake.error(402, "plan", ""","plan":{"kind":"ended","active":false,"backup":false}""") }
+        runCatching { thinking.plain("i", "u") }
+        assertTrue(server.ended)
+        assertFalse(meaning.available())
+        val asked = fake.asks.size
+        assertTrue(meaning.words("outra busca").isEmpty())
+        assertEquals(asked, fake.asks.size)
+    }
+
+    @Test
     fun theServerSeesAPhotoAndWhenItIsOverSheIsToldToChoose() = runBlocking {
         val seeing = Seeing(st, graph.api, NoAbout, server)
         fake.reply = { _, _ -> fake.answer("\"O Cooper deitado no sofá azul.\"") }

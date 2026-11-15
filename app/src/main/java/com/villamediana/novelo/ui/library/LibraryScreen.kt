@@ -156,7 +156,7 @@ fun LibraryScreen(nav: Nav, screen: Screen.Library) {
     LaunchedEffect(query) { delay(180); debounced = query }
     // …and by meaning: once she stops typing, Omni gives the words her notes may use for it, and
     // what they find comes after what her own words found.
-    val byMeaning by produceState(false) { value = withContext(Dispatchers.IO) { graph.meaning.available } }
+    val byMeaning by produceState(false) { value = withContext(Dispatchers.IO) { graph.meaning.available() } }
     LaunchedEffect(searching, byMeaning) { if (searching && byMeaning) graph.meaning.warm() }
     var meant by remember { mutableStateOf<Pair<String, List<String>>?>(null) }
     val asked = debounced.trim()
