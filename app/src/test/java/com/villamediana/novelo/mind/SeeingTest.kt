@@ -53,16 +53,16 @@ class SeeingTest {
     @After fun stop() {
         server.close()
         runBlocking {
-            st.setSee(Source.NOVELO)
+            st.setSee(Source.LOCAL)
             st.setApiProvider(Job.SEE, ""); st.setApiBase(Job.SEE, ""); st.setApiKey(Job.SEE, ""); st.setModel(Job.SEE, "")
-            st.setHear(Source.NOVELO)
+            st.setHear(Source.LOCAL)
         }
     }
 
     @Test
     fun theNovelosModelOrHerApiSees() = runBlocking {
-        val seeing = Seeing(st, graph.api, phone)
-        st.setSee(Source.NOVELO)
+        val seeing = Seeing(st, graph.api, phone, graph.server)
+        st.setSee(Source.LOCAL)
         assertEquals("visto no celular", seeing.photo(byteArrayOf(1, 2, 3)))
         assertEquals(0, server.requestCount)
         // Her API: the photo goes to it, the answer comes without quotes.
@@ -85,12 +85,12 @@ class SeeingTest {
     fun whoSeesMissingIsSaidWithoutLocking() = runBlocking {
         // Her API hears and thinks; who sees is the Novelo with no model on the phone: said, not locking.
         val noModel = LocalModel.State.Missing
-        val s0 = st.current().copy(hear = Source.API, hearProvider = "openai", hasHearKey = true, hearModel = "whisper-1", see = Source.NOVELO)
+        val s0 = st.current().copy(hear = Source.API, hearProvider = "openai", hasHearKey = true, hearModel = "whisper-1", see = Source.LOCAL)
         val m0 = missing(s0, noModel, engine = true)
         assertEquals(listOf(Missing.SEE), m0)
         assertFalse(m0.any { it.locks })
         // The Novelo hears too: the ears are asked for once (the same model sees).
-        assertEquals(listOf(Missing.EARS), missing(s0.copy(hear = Source.NOVELO), noModel, engine = true))
+        assertEquals(listOf(Missing.EARS), missing(s0.copy(hear = Source.LOCAL), noModel, engine = true))
         // Her API sees, not set up: said; set up, nothing missing.
         assertEquals(listOf(Missing.SEE), missing(s0.copy(see = Source.API), noModel, engine = true))
         assertTrue(missing(s0.copy(see = Source.API, seeProvider = "openai", hasSeeKey = true, seeModel = "gpt-4o-mini"), noModel, engine = true).isEmpty())

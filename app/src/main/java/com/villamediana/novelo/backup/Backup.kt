@@ -111,6 +111,35 @@ class Backup(
         }
     }
 
+    /** What a backup is made of, for one sent in pieces (the cloud): backup.json and each file with its place inside. */
+    class Parts(val json: ByteArray, val files: List<Pair<String, File>>, val counted: Saved, val same: String, val madeAt: Long)
+
+    /** Everything a backup takes, as it is now; null when the app has nothing to keep. */
+    suspend fun parts(): Parts? = lock.withLock {
+        withContext(Dispatchers.IO) {
+            val snap = snapshot()
+            if (snap.entries.isEmpty() && snap.captures.isEmpty() && snap.meds.isEmpty()) return@withContext null
+            val byId = snap.captures.associateBy { it.id }
+            val files = (
+                snap.photos.mapNotNull { (id, rel) -> byId[id]?.imagePath?.let { rel to File(it) } } +
+                    snap.sounds.mapNotNull { (id, rel) -> byId[id]?.audioPath?.let { rel to File(it) } } +
+                    snap.files.mapNotNull { (id, rel) -> byId[id]?.filePath?.let { rel to File(it) } }
+                ).filter { it.second.isFile }
+            Parts(
+                json = json.encodeToString(Snapshot.serializer(), snap).toByteArray(Charsets.UTF_8),
+                files = files,
+                counted = Saved(snap.entries.size, snap.photoCount, null, sounds = snap.soundCount, files = snap.files.size),
+                same = sha(json.encodeToString(Snapshot.serializer(), snap.copy(madeAt = 0)).toByteArray(Charsets.UTF_8)),
+                madeAt = snap.madeAt,
+            )
+        }
+    }
+
+    /** A backup laid out in [dir] as it is inside the file (backup.json and the files in their places) put back in place of what the app has. */
+    suspend fun restoreFolder(dir: File): Restored = lock.withLock {
+        withContext(Dispatchers.IO) { putBack(decode(File(dir, INSIDE).readBytes()), FileShelf(dir)) }
+    }
+
     /** Nothing in the app yet (a first start): a backup found can come back without replacing anything. */
     suspend fun empty(): Boolean = withContext(Dispatchers.IO) { db.backup().count() == 0 }
 

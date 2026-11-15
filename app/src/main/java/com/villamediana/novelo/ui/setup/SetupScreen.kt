@@ -118,11 +118,44 @@ import java.text.NumberFormat
  * ears on the phone.
  */
 @Composable
-fun SetupScreen(onDone: () -> Unit) {
+fun SetupScreen(onDone: () -> Unit, choose: Boolean? = null) {
     var step by rememberSaveable { mutableIntStateOf(0) }
-    // Who sees is asked only when her API hears (when the Novelo hears, the same model on the phone sees).
-    val s by NoveloApplication.graph.settings.now.collectAsStateWithLifecycle()
+    val graph = NoveloApplication.graph
+    val scope = rememberCoroutineScope()
+    // Who sees is asked only when her API hears (when the model on the phone hears, it sees too).
+    val s by graph.settings.now.collectAsStateWithLifecycle()
     val asksSee = s.hear == Source.API
+    // The Novelo's own intelligence asks nothing of her: the permissions, the backup, and that is it.
+    // Who hears, sees and thinks is asked only where the Novelo has none (a build without its server),
+    // or when those choices are shown again (SHOW_INTELLIGENCE).
+    val choosing = choose ?: (com.villamediana.novelo.ui.settings.SHOW_INTELLIGENCE || !graph.server.available)
+    // What this phone has (the cloud backup is offered by it), asked while she reads the first page.
+    LaunchedEffect(Unit) { if (graph.server.available) runCatching { graph.server.me() } }
+    if (!choosing) {
+        Column(Modifier.fillMaxSize().paper().statusBarsPadding().navigationBarsPadding().imePadding()) {
+            Steps(step, count = 2, modifier = Modifier.padding(top = 18.dp).align(Alignment.CenterHorizontally))
+            AnimatedContent(
+                targetState = step,
+                transitionSpec = {
+                    val forward = targetState > initialState
+                    (slideInHorizontally { if (forward) it / 4 else -it / 4 } + fadeIn()) togetherWith (slideOutHorizontally { if (forward) -it / 6 else it / 6 } + fadeOut())
+                },
+                label = "setup",
+                modifier = Modifier.weight(1f),
+            ) { at ->
+                when (at) {
+                    0 -> PermissionsStep(onNext = { step = 1 })
+                    else -> BackupStep(last = true, onNext = {
+                        scope.launch {
+                            graph.settings.setSetupDone()
+                            onDone()
+                        }
+                    })
+                }
+            }
+        }
+        return
+    }
     Column(Modifier.fillMaxSize().paper().statusBarsPadding().navigationBarsPadding().imePadding()) {
         Steps(if (!asksSee && step > 2) step - 1 else step, count = if (asksSee) 5 else 4, modifier = Modifier.padding(top = 18.dp).align(Alignment.CenterHorizontally))
         AnimatedContent(
@@ -327,7 +360,7 @@ private fun Permission(icon: ImageVector, title: String, why: String, ok: Boolea
 // ——— 2. The backup ———
 
 @Composable
-private fun BackupStep(onNext: () -> Unit) {
+private fun BackupStep(last: Boolean = false, onNext: () -> Unit) {
     val graph = NoveloApplication.graph
     val scope = rememberCoroutineScope()
     val s by graph.settings.now.collectAsStateWithLifecycle()
@@ -347,16 +380,21 @@ private fun BackupStep(onNext: () -> Unit) {
             }
         }
     }
-    val chosen = s.backupFolder.isNotBlank()
+    val plan by graph.server.plan.collectAsStateWithLifecycle()
+    val cloudOffered = graph.server.available && plan?.backup == true
+    val folder = s.backupFolder.isNotBlank()
+    // A backup is a must (with it nothing is lost, whatever happens to the phone): the cloud, a folder, or both.
+    val chosen = folder || s.cloud
     fun choose() = pick.launch(s.backupFolder.takeIf { it.isNotBlank() }?.let(Uri::parse))
     Page(
         title = t(R.string.setup_backup_title),
-        line = t(R.string.setup_backup_line),
-        primary = t(if (chosen) R.string.setup_continue else R.string.setup_choose_folder),
+        line = t(if (cloudOffered) R.string.setup_backup_line_any else R.string.setup_backup_line),
+        primary = t(if (!chosen) R.string.setup_choose_folder else if (last) R.string.setup_start else R.string.setup_continue),
         onPrimary = { if (chosen) onNext() else choose() },
         primaryEnabled = !bringing,
-        // A folder is a must: with it nothing is lost, whatever happens to the phone.
     ) {
+        // The cloud (when the server takes this phone's backup): on with one tap, or a backup of hers brought back.
+        com.villamediana.novelo.ui.settings.CloudBackupBlock(Modifier.padding(bottom = 10.dp))
         Card(onClick = { if (!bringing) choose() }) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(40.dp).clip(CircleShape).background(NoveloColors.Accent.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
@@ -368,7 +406,7 @@ private fun BackupStep(onNext: () -> Unit) {
                     Text(
                         when {
                             bringing -> t(R.string.setup_backup_bringing)
-                            chosen -> s.backupPlace.ifBlank { t(R.string.backup_folder_chosen) }
+                            folder -> s.backupPlace.ifBlank { t(R.string.backup_folder_chosen) }
                             else -> t(R.string.backup_choose_where)
                         },
                         style = MaterialTheme.typography.bodySmall,
@@ -377,7 +415,7 @@ private fun BackupStep(onNext: () -> Unit) {
                 }
                 when {
                     bringing -> androidx.compose.material3.CircularProgressIndicator(color = NoveloColors.Accent, strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
-                    chosen -> Icon(NoveloIcons.Check, null, tint = NoveloColors.Success, modifier = Modifier.size(20.dp))
+                    folder -> Icon(NoveloIcons.Check, null, tint = NoveloColors.Success, modifier = Modifier.size(20.dp))
                     else -> Icon(NoveloIcons.Chevron, null, tint = NoveloColors.TextFaint, modifier = Modifier.size(18.dp))
                 }
             }
@@ -448,7 +486,7 @@ private fun IntelligenceStep(onDone: () -> Unit) {
             // The ears stopped (no room, the download failed, gone) or wait for the Wi-Fi: what to do
             // is here too — the button can't go on without them, and the setup has no way back.
             val stuck = ears == LocalModel.State.Missing || ears is LocalModel.State.Failed || (ears as? LocalModel.State.Downloading)?.waiting != null
-            if (s.hear == Source.NOVELO && LocalEngine.available && stuck) {
+            if (s.hear == Source.LOCAL && LocalEngine.available && stuck) {
                 Spacer(Modifier.height(8.dp))
                 Text(t(R.string.setup_ears_title), style = MaterialTheme.typography.titleMedium, color = NoveloColors.Text)
                 LocalDownload(Modifier.padding(top = 6.dp))
@@ -468,7 +506,7 @@ internal enum class OwnReady(val need: Int) {
 
 /** The last step waits for the ears: only when the Novelo hears and they can be on this phone, until they are. */
 internal fun earsNeeded(hear: Source, engine: Boolean, ears: LocalModel.State): Boolean =
-    hear == Source.NOVELO && engine && ears != LocalModel.State.Ready
+    hear == Source.LOCAL && engine && ears != LocalModel.State.Ready
 
 // ——— 1b. Who hears ———
 
@@ -504,7 +542,7 @@ private fun HearStep(onNext: () -> Unit) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Card(selected = !own, onClick = {
                 own = false
-                scope.launch { st.setHear(Source.NOVELO) }
+                scope.launch { st.setHear(Source.LOCAL) }
             }) {
                 ChoiceTitle(t(R.string.setup_ears_title), t(R.string.setup_hear_novelo_line, formatBytes(graph.localModel.totalBytes)))
             }
@@ -545,7 +583,7 @@ private fun SeeStep(onNext: () -> Unit) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Card(selected = !own, onClick = {
                 own = false
-                scope.launch { st.setSee(Source.NOVELO) }
+                scope.launch { st.setSee(Source.LOCAL) }
             }) {
                 ChoiceTitle(t(R.string.setup_see_novelo), t(R.string.setup_see_novelo_line, formatBytes(graph.localModel.totalBytes)))
             }

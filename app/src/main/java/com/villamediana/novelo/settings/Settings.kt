@@ -28,16 +28,26 @@ import com.villamediana.novelo.ai.Provider
 import com.villamediana.novelo.ai.Providers
 
 /**
- * Who hears and who thinks. Hearing: the Novelo's ears on the phone (Omni, downloaded once) or her
- * API (a transcription model). Thinking: the Novelo's own intelligence (free models online, nothing
- * to set up) or her API. The Novelo's keeps the key "local" it had when it thought on the phone
- * (until 1.19): whoever chose the Novelo stays with it.
+ * Who hears, sees and thinks: the Novelo's own intelligence (its server: nothing to download,
+ * nothing to set up), the model on the phone (Omni, downloaded once; it hears and sees, it
+ * doesn't think), or her API.
  */
 enum class Source(val key: String) {
-    NOVELO("local"), API("api");
+    NOVELO("novelo"), LOCAL("local"), API("api");
 
     companion object {
         fun of(key: String?): Source = entries.firstOrNull { it.key == key } ?: NOVELO
+
+        /**
+         * Who does a job: what she chose since the Novelo has its own intelligence ([now]); before
+         * that ([before]), her API when it was her API — everything else is [otherwise] (the Novelo's
+         * own, where this build has it).
+         */
+        fun of(now: String?, before: String?, otherwise: Source = NOVELO): Source = when {
+            now != null -> entries.firstOrNull { it.key == now } ?: otherwise
+            before == API.key -> API
+            else -> otherwise
+        }
     }
 }
 
@@ -69,14 +79,14 @@ data class ApiSetup(val providerId: String, val base: String, val hasKey: Boolea
 }
 
 data class NoveloSettings(
-    /** Who hears: the Novelo's ears on the phone, or her API. */
+    /** Who hears: the Novelo, the model on the phone, or her API. */
     val hear: Source = Source.NOVELO,
     /** Her API that hears (its own provider, address, key and model). */
     val hearProvider: String = "",
     val hearBase: String = "",
     val hasHearKey: Boolean = false,
     val hearModel: String = "",
-    /** Who sees (says what a photo shows, what a document is): the Novelo's model on the phone, or her API. */
+    /** Who sees (says what a photo shows, what a document is): the Novelo, the model on the phone, or her API. */
     val see: Source = Source.NOVELO,
     /** Her API that sees (its own provider, address, key and model). */
     val seeProvider: String = "",
@@ -105,6 +115,11 @@ data class NoveloSettings(
     /** What the last backup took ("120 itens · 34 fotos"), or why it didn't go. */
     val backupNote: String = "",
     val backupFailed: Boolean = false,
+    /** The backup in the cloud (Novelo+): on, when it last went well, what it took or why it didn't go. */
+    val cloud: Boolean = false,
+    val cloudAt: Long = 0,
+    val cloudNote: String = "",
+    val cloudFailed: Boolean = false,
     /** The first steps (permissions, backup, intelligence) were gone through. */
     val setupDone: Boolean = false,
     /** The library's tabs in her order ("today,tasks,diary…"); empty: the usual order. */
@@ -135,19 +150,25 @@ class Settings(private val context: Context, scope: CoroutineScope) {
     private val store = context.store
     private val vault = Vault()
 
+    /**
+     * Who hears and sees until she says otherwise: the Novelo's own intelligence; in a build
+     * without its server (the tests, a build made without the address), the model on the phone.
+     */
+    private val onPhone = if (com.villamediana.novelo.BuildConfig.NOVELO_SERVER.isNotBlank()) Source.NOVELO else Source.LOCAL
+
     val flow: Flow<NoveloSettings> = store.data.map { p ->
         NoveloSettings(
-            hear = Source.of(p[HEAR_BY]),
+            hear = Source.of(p[HEAR_SRC], p[HEAR_BY], onPhone),
             hearProvider = p[HEAR_API_PROVIDER].orEmpty(),
             hearBase = p[HEAR_API_BASE].orEmpty(),
             hasHearKey = !p[HEAR_API_KEY].isNullOrEmpty(),
             hearModel = p[HEAR_API_MODEL].orEmpty(),
-            see = Source.of(p[SEE_BY]),
+            see = Source.of(p[SEE_SRC], p[SEE_BY], onPhone),
             seeProvider = p[SEE_API_PROVIDER].orEmpty(),
             seeBase = p[SEE_API_BASE].orEmpty(),
             hasSeeKey = !p[SEE_API_KEY].isNullOrEmpty(),
             seeModel = p[SEE_API_MODEL].orEmpty(),
-            think = Source.of(p[THINK]),
+            think = Source.of(p[THINK_SRC], p[THINK]),
             thinkModel = p[THINK_MODEL].orEmpty(),
             apiBase = p[API_BASE].orEmpty(),
             apiProvider = p[API_PROVIDER].orEmpty(),
@@ -161,6 +182,10 @@ class Settings(private val context: Context, scope: CoroutineScope) {
             backupAt = p[BACKUP_AT] ?: 0L,
             backupNote = p[BACKUP_NOTE].orEmpty(),
             backupFailed = p[BACKUP_FAILED] ?: false,
+            cloud = p[CLOUD_ON] ?: false,
+            cloudAt = p[CLOUD_AT] ?: 0L,
+            cloudNote = p[CLOUD_NOTE].orEmpty(),
+            cloudFailed = p[CLOUD_FAILED] ?: false,
             setupDone = p[SETUP_DONE] ?: false,
             tabOrder = p[TAB_ORDER].orEmpty(),
             tabsHidden = p[TABS_HIDDEN].orEmpty(),
@@ -173,8 +198,8 @@ class Settings(private val context: Context, scope: CoroutineScope) {
 
     suspend fun apiKey(job: Job = Job.THINK): String? = store.data.first()[keys(job).key]?.let { vault.open(it) }
 
-    suspend fun setHear(source: Source) = store.edit { it[HEAR_BY] = source.key }
-    suspend fun setSee(source: Source) = store.edit { it[SEE_BY] = source.key }
+    suspend fun setHear(source: Source) = store.edit { it[HEAR_SRC] = source.key }
+    suspend fun setSee(source: Source) = store.edit { it[SEE_SRC] = source.key }
 
     /** Who does [job] (hears, sees or thinks): the Novelo, or her API. */
     suspend fun setSource(job: Job, source: Source) = when (job) {
@@ -182,7 +207,7 @@ class Settings(private val context: Context, scope: CoroutineScope) {
         Job.SEE -> setSee(source)
         Job.THINK -> setThink(source)
     }
-    suspend fun setThink(source: Source) = store.edit { it[THINK] = source.key }
+    suspend fun setThink(source: Source) = store.edit { it[THINK_SRC] = source.key }
     suspend fun setThinkModel(model: String) = setModel(Job.THINK, model)
     suspend fun setApiBase(url: String) = setApiBase(Job.THINK, url)
     suspend fun setApiProvider(id: String) = setApiProvider(Job.THINK, id)
@@ -247,8 +272,48 @@ class Settings(private val context: Context, scope: CoroutineScope) {
         it[BACKUP_FAILED] = true
     }
 
+    /**
+     * The secret the cloud backup is made from (16 bytes): sealed here, and nowhere else in the app.
+     * Whoever has it reads the backup; without it nobody does — not even the server that keeps it.
+     */
+    suspend fun cloudSeed(): ByteArray? = store.data.first()[CLOUD_SEED]?.let { vault.open(it) }?.let { runCatching { Base64.decode(it, Base64.NO_WRAP) }.getOrNull() }?.takeIf { it.size == 16 }
+
+    suspend fun setCloudSeed(seed: ByteArray?) = store.edit { p ->
+        if (seed == null) p.remove(CLOUD_SEED) else p[CLOUD_SEED] = vault.seal(Base64.encodeToString(seed, Base64.NO_WRAP))
+    }
+
+    suspend fun setCloud(on: Boolean) = store.edit {
+        it[CLOUD_ON] = on
+        if (!on) {
+            it.remove(CLOUD_AT)
+            it.remove(CLOUD_NOTE)
+            it.remove(CLOUD_FAILED)
+        }
+    }
+
+    suspend fun setCloudDone(at: Long, note: String) = store.edit {
+        it[CLOUD_AT] = at
+        it[CLOUD_NOTE] = note
+        it[CLOUD_FAILED] = false
+    }
+
+    suspend fun setCloudFailed(note: String) = store.edit {
+        it[CLOUD_NOTE] = note
+        it[CLOUD_FAILED] = true
+    }
+
     private companion object {
-        /** Who hears (1.55). Not the old "hear" of the Fio, which may still say "api" from back then. */
+        /** Who does each job, since the Novelo has its own intelligence (1.73). */
+        val HEAR_SRC = stringPreferencesKey("hear_src")
+        val SEE_SRC = stringPreferencesKey("see_src")
+        val THINK_SRC = stringPreferencesKey("think_src")
+        val CLOUD_ON = booleanPreferencesKey("cloud_on")
+        val CLOUD_AT = longPreferencesKey("cloud_at")
+        val CLOUD_NOTE = stringPreferencesKey("cloud_note")
+        val CLOUD_FAILED = booleanPreferencesKey("cloud_failed")
+        val CLOUD_SEED = stringPreferencesKey("cloud_seed_sealed")
+
+        /** Before that: "local" was the Novelo's (ears on the phone, free models online), "api" hers. Read only to carry "api" over. */
         val HEAR_BY = stringPreferencesKey("hear_by")
         val HEAR_API_PROVIDER = stringPreferencesKey("hear_api_provider")
         val HEAR_API_BASE = stringPreferencesKey("hear_api_base")

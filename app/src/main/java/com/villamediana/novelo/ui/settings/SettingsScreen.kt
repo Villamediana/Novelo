@@ -92,9 +92,13 @@ fun SettingsScreen(nav: Nav, openAi: Boolean = false) {
         PageTop(t(R.string.settings)) { nav.back() }
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
             Spacer(Modifier.height(10.dp))
-            val ai = intelligenceSummary(s, local, graph.novelo.available)
+            val plan by graph.server.plan.collectAsStateWithLifecycle()
+            val novelo = graph.server.available && plan?.active != false
+            val ai = intelligenceSummary(s, local, novelo)
             val backup = backupSummary(s, busy)
-            Fold(t(R.string.ai_title), ai.first, ai.second, open == Part.AI, { toggle(Part.AI) }) { IntelligenceSection() }
+            // The Novelo's own intelligence needs nothing from her: who hears, sees and thinks shows
+            // only to who isn't all on it (her API, the model on the phone) or can't be any more.
+            if (intelligenceShown(s, novelo)) Fold(t(R.string.ai_title), ai.first, ai.second, open == Part.AI, { toggle(Part.AI) }) { IntelligenceSection() }
             Fold(
                 t(R.string.theme),
                 when (s.theme) { ThemeMode.SYSTEM -> t(R.string.theme_system); ThemeMode.LIGHT -> t(R.string.theme_light); ThemeMode.DARK -> t(R.string.theme_dark) } + " · " + NoveloAccents.byId(s.accent).name.lowercase(),
@@ -165,23 +169,32 @@ private fun Fold(title: String, summary: String, attention: Boolean, open: Boole
     }
 }
 
+/**
+ * Ajustes › Inteligência is there to be seen. Hidden for now for whoever is on the Novelo's own
+ * intelligence and can stay on it ([SHOW_INTELLIGENCE] brings it back for everyone).
+ */
+internal const val SHOW_INTELLIGENCE = false
+
+internal fun intelligenceShown(s: NoveloSettings, novelo: Boolean): Boolean =
+    SHOW_INTELLIGENCE || !novelo || s.hear != Source.NOVELO || s.see != Source.NOVELO || s.think != Source.NOVELO
+
 /** Who hears and who thinks, in a few words; true when something is missing. */
 internal fun intelligenceSummary(s: NoveloSettings, local: LocalModel.State, novelo: Boolean): Pair<String, Boolean> {
     val hear = s.api(Job.HEAR)
     val think = s.api(Job.THINK)
     return when {
-        s.hear == Source.NOVELO && !(LocalEngine.available && local is LocalModel.State.Ready) -> t(R.string.local_pack_hear) + " · " + localShort(local) to true
+        !novelo && (s.hear == Source.NOVELO || s.see == Source.NOVELO || s.think == Source.NOVELO) -> t(R.string.ready_novelo) to true
+        s.hear == Source.LOCAL && !(LocalEngine.available && local is LocalModel.State.Ready) -> t(R.string.local_pack_hear) + " · " + localShort(local) to true
         s.hear == Source.API && !hear.ready -> t(R.string.ai_missing_hear_api) to true
         s.hear == Source.API && hear.model.isBlank() -> t(R.string.ai_missing_hear_model) to true
-        s.see == Source.NOVELO && s.hear != Source.NOVELO && LocalEngine.available && local !is LocalModel.State.Ready -> t(R.string.local_pack_see) + " · " + localShort(local) to true
+        s.see == Source.LOCAL && s.hear != Source.LOCAL && LocalEngine.available && local !is LocalModel.State.Ready -> t(R.string.local_pack_see) + " · " + localShort(local) to true
         s.see == Source.API && !s.api(Job.SEE).ready -> t(R.string.ai_missing_see_api) to true
         s.see == Source.API && s.api(Job.SEE).model.isBlank() -> t(R.string.ai_missing_see_model) to true
-        s.think == Source.NOVELO && !novelo -> t(R.string.need_novelo_not_in_version) to true
         s.think == Source.API && !think.ready -> t(R.string.ai_missing_api) to true
         s.think == Source.API && think.model.isBlank() -> t(R.string.ai_missing_model) to true
         else -> listOf(
-            if (s.hear == Source.NOVELO) t(R.string.ai_hears_phone) else t(R.string.ai_hears_with, hear.model),
-            if (s.see == Source.NOVELO) t(R.string.ai_sees_phone) else t(R.string.ai_sees_with, s.api(Job.SEE).model),
+            when (s.hear) { Source.NOVELO -> t(R.string.ai_hears_novelo); Source.LOCAL -> t(R.string.ai_hears_phone); Source.API -> t(R.string.ai_hears_with, hear.model) },
+            when (s.see) { Source.NOVELO -> t(R.string.ai_sees_novelo); Source.LOCAL -> t(R.string.ai_sees_phone); Source.API -> t(R.string.ai_sees_with, s.api(Job.SEE).model) },
             if (s.think == Source.NOVELO) t(R.string.ai_thinks_novelo) else t(R.string.ai_thinks_with, think.model),
         ).joinToString(" · ") to false
     }
@@ -189,8 +202,11 @@ internal fun intelligenceSummary(s: NoveloSettings, local: LocalModel.State, nov
 
 /** The backup in a few words; true when it needs her. */
 internal fun backupSummary(s: NoveloSettings, busy: String?): Pair<String, Boolean> = when {
-    s.backupFolder.isBlank() -> t(R.string.backup_choose_where) to true
+    s.backupFolder.isBlank() && !s.cloud -> t(R.string.backup_choose_where) to true
     busy == Backups.SAVING -> t(R.string.backup_doing) to false
+    s.cloud && s.cloudFailed -> s.cloudNote to true
+    // Only in the cloud (no folder): that is a whole backup too.
+    s.backupFolder.isBlank() -> (t(R.string.backup_cloud_only) + if (s.cloudAt > 0) " · " + t(R.string.backup_last, moment(s.cloudAt)) else "") to false
     s.backupFailed -> s.backupNote to true
     s.backupAt > 0 -> t(R.string.backup_daily_last, moment(s.backupAt)) to false
     else -> t(R.string.backup_daily) to false

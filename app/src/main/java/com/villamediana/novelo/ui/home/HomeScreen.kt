@@ -113,7 +113,10 @@ fun HomeScreen(nav: Nav, talkAbout: Long?, onTalkHandled: () -> Unit) {
     val staged by mind.staged.collectAsStateWithLifecycle()
     val ears by graph.localModel.state.collectAsStateWithLifecycle()
     // What is still missing to hear and think (the ears, her APIs): the button is locked until it is there.
-    val missing = remember(settings, ears) { missing(settings, ears, com.villamediana.novelo.local.LocalEngine.available) }
+    // What the server last said this phone has: when the Novelo's intelligence is over for it, what it did is missing.
+    val plan by graph.server.plan.collectAsStateWithLifecycle()
+    val novelo = graph.server.available && plan?.active != false
+    val missing = remember(settings, ears, novelo) { missing(settings, ears, com.villamediana.novelo.local.LocalEngine.available, novelo) }
     // Locked only for what speaking needs (who sees lacks only for photos and documents: said, not locked).
     val locked = missing.any { it.locks }
     var nudge by remember { androidx.compose.runtime.mutableIntStateOf(0) }

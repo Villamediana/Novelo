@@ -95,13 +95,16 @@ fun BackupSection() {
         else -> t(R.string.backup_by_itself) to false
     }
 
+    // The cloud first (when the server takes this phone's backup): on with one tap; then the folder.
+    CloudBackupBlock(Modifier.padding(bottom = 10.dp))
     Group(
         Modifier,
         {
             Line(
                 title = if (hasFolder) s.backupPlace.ifBlank { t(R.string.backup_folder_chosen) } else t(R.string.backup_folder),
                 subtitle = status,
-                subtitleColor = if (problem) (if (hasFolder) NoveloColors.Danger else NoveloColors.Accent) else NoveloColors.TextMuted,
+                // With the cloud on, a folder is one more place, not something missing.
+                subtitleColor = if (problem) (if (hasFolder) NoveloColors.Danger else if (s.cloud) NoveloColors.TextMuted else NoveloColors.Accent) else NoveloColors.TextMuted,
                 onClick = { if (busy == null) choose() },
             ) {
                 if (busy != null) CircularProgressIndicator(Modifier.size(18.dp), color = NoveloColors.Accent, strokeWidth = 2.dp)

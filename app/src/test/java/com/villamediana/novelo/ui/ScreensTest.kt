@@ -234,7 +234,11 @@ class ScreensTest {
         val dir = File(context.filesDir, "captures").apply { mkdirs() }
         // Three photos today, one yesterday (that one belongs to yesterday's diary).
         val colors = listOf(0xFFE8A87C, 0xFF85CDCA, 0xFFC38D9E, 0xFF41B3A3).map { it.toInt() }
-        val times = listOf(now - 3_600_000L, now - 1_800_000L, now - 600_000L, now - day)
+        // (The three are of the diary's own day — it was written six hours ago, which before 6 in the
+        // morning is yesterday — whatever the hour the test runs at.)
+        val written = now - 6 * 3_600_000L
+        val lastOfThatDay = java.time.Instant.ofEpochMilli(written).atZone(zone).toLocalDate().plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli() - 1
+        val times = listOf(0L, 60_000L, 120_000L).map { minOf(written + it, lastOfThatDay) } + (written - day)
         runBlocking {
             colors.forEachIndexed { i, color ->
                 val f = File(dir, "photo-test-$i.jpg")
@@ -1057,7 +1061,12 @@ class ScreensTest {
             st.setApiProvider(com.villamediana.novelo.settings.Job.HEAR, "")
             st.setApiKey(com.villamediana.novelo.settings.Job.HEAR, "")
             st.setModel(com.villamediana.novelo.settings.Job.HEAR, "")
-            st.setThink(Source.NOVELO)
+            // Who thinks is all set (her API; this build has no Novelo server): only who hears is missing.
+            st.setThink(Source.API)
+            st.setApiProvider(com.villamediana.novelo.settings.Job.THINK, "custom")
+            st.setApiBase(com.villamediana.novelo.settings.Job.THINK, "https://example.invalid/v1")
+            st.setApiKey(com.villamediana.novelo.settings.Job.THINK, "k")
+            st.setModel(com.villamediana.novelo.settings.Job.THINK, "m")
             st.setHintSeen()
         }
         val nav = Nav()
@@ -1084,7 +1093,12 @@ class ScreensTest {
             compose.onNodeWithText("O que está na sua cabeça?").assertExists()
         } finally {
             runBlocking {
-                st.setHear(Source.NOVELO)
+                st.setThink(Source.NOVELO)
+                st.setApiProvider(com.villamediana.novelo.settings.Job.THINK, "")
+                st.setApiBase(com.villamediana.novelo.settings.Job.THINK, "")
+                st.setApiKey(com.villamediana.novelo.settings.Job.THINK, "")
+                st.setModel(com.villamediana.novelo.settings.Job.THINK, "")
+                st.setHear(Source.LOCAL)
                 st.setApiProvider(com.villamediana.novelo.settings.Job.HEAR, "")
                 st.setApiBase(com.villamediana.novelo.settings.Job.HEAR, "")
                 st.setApiKey(com.villamediana.novelo.settings.Job.HEAR, "")
@@ -1543,7 +1557,7 @@ class ScreensTest {
 
     @Test
     fun theIntelligencePageShowsOnlyWhatTheChoiceNeeds() {
-        runBlocking { graph.settings.setThink(Source.API); graph.settings.setHear(Source.NOVELO) }
+        runBlocking { graph.settings.setThink(Source.API); graph.settings.setHear(Source.LOCAL) }
         compose.setContent { NoveloTheme(ThemeMode.LIGHT) { Box(Modifier.fillMaxSize().background(NoveloColors.Background).verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(16.dp)) { com.villamediana.novelo.ui.settings.IntelligenceSection() } } }
         try {
             // Who hears, who sees and who thinks, each the Novelo or her API.
@@ -1572,13 +1586,13 @@ class ScreensTest {
             compose.mainClock.advanceTimeBy(500)
             shot("30b-settings-intelligence-hears-api")
             // All the Novelo's: nothing to fill, only its model.
-            runBlocking { graph.settings.setHear(Source.NOVELO); graph.settings.setSee(Source.NOVELO) }
+            runBlocking { graph.settings.setHear(Source.LOCAL); graph.settings.setSee(Source.LOCAL) }
             compose.waitUntil(5_000) { compose.onAllNodesWithText("Chave").fetchSemanticsNodes().isEmpty() }
             compose.mainClock.advanceTimeBy(500)
             shot("30c-settings-intelligence-novelo")
         } finally {
             runBlocking {
-                graph.settings.setHear(Source.NOVELO); graph.settings.setSee(Source.NOVELO)
+                graph.settings.setHear(Source.LOCAL); graph.settings.setSee(Source.LOCAL)
                 graph.settings.setApiProvider(com.villamediana.novelo.settings.Job.HEAR, ""); graph.settings.setApiProvider(com.villamediana.novelo.settings.Job.SEE, "")
             }
         }
@@ -1642,7 +1656,7 @@ class ScreensTest {
             graph.settings.setBackupFolder("", "")
             graph.settings.setThink(com.villamediana.novelo.settings.Source.NOVELO)
             // …nor of the one that hears.
-            graph.settings.setHear(com.villamediana.novelo.settings.Source.NOVELO)
+            graph.settings.setHear(com.villamediana.novelo.settings.Source.LOCAL)
             graph.settings.setApiProvider(com.villamediana.novelo.settings.Job.HEAR, "")
             graph.settings.setApiBase(com.villamediana.novelo.settings.Job.HEAR, "")
             graph.settings.setApiKey(com.villamediana.novelo.settings.Job.HEAR, "")
@@ -1714,7 +1728,7 @@ class ScreensTest {
             graph.settings.setBackupFolder("", "")
             graph.settings.setApiProvider("")
             graph.settings.setApiProvider(com.villamediana.novelo.settings.Job.HEAR, "")
-            graph.settings.setHear(com.villamediana.novelo.settings.Source.NOVELO)
+            graph.settings.setHear(com.villamediana.novelo.settings.Source.LOCAL)
             graph.settings.setThink(com.villamediana.novelo.settings.Source.API)
         }
     }

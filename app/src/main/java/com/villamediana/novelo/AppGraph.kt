@@ -22,7 +22,6 @@ import com.villamediana.novelo.mind.Mind
 import com.villamediana.novelo.mind.MlKitPhotoReader
 import com.villamediana.novelo.mind.Thinking
 import com.villamediana.novelo.mind.WhenOnline
-import com.villamediana.novelo.ai.NoveloModels
 import com.villamediana.novelo.remind.Reminders
 import com.villamediana.novelo.settings.Settings
 import com.villamediana.novelo.update.Updates
@@ -56,15 +55,25 @@ class AppGraph(context: Context) {
     val settings: Settings by lazy { Settings(appContext, scope) }
     val api: Api by lazy { Api(http) }
     val engine: LocalEngine by lazy { LocalEngine(java.io.File(appContext.cacheDir, "model")) }
-    /** On the phone: LFM3-Omni hears (when she chose the Novelo's ears) and looks at photos and files. */
+    /** On the phone: LFM3-Omni hears and looks at photos and files, when she chose the model on the phone. */
     val localModel: LocalModel by lazy {
         LocalModel(appContext, scope).also { model ->
             // What waited for the download goes as soon as it is here.
             scope.launch { model.state.collect { if (it == LocalModel.State.Ready) mind.retryPending() } }
         }
     }
-    /** The Novelo's own intelligence: free models online, picked and swapped by themselves. */
-    val novelo: NoveloModels by lazy { NoveloModels(http, appContext.getSharedPreferences("novelo-models", Context.MODE_PRIVATE)) }
+    /** The Novelo's server: its own intelligence (it hears, sees and thinks) and the cloud backup. */
+    val server: com.villamediana.novelo.server.NoveloServer by lazy {
+        com.villamediana.novelo.server.NoveloServer(
+            http = http,
+            base = BuildConfig.NOVELO_SERVER,
+            box = com.villamediana.novelo.server.KeystoreBox(),
+            prefs = appContext.getSharedPreferences("novelo-server", Context.MODE_PRIVATE),
+            install = { com.villamediana.novelo.server.Install.id(appContext) },
+            version = BuildConfig.VERSION_NAME,
+            pack = appContext.packageName,
+        )
+    }
     val recorder: Recorder by lazy { Recorder() }
     val reminders: Reminders by lazy { Reminders(appContext, db) }
     val library: Library by lazy { Library(db, reminders) }
@@ -87,7 +96,7 @@ class AppGraph(context: Context) {
     private val captures: File by lazy { File(appContext.filesDir, "captures").apply { mkdirs() } }
 
     /** Who thinks (the Novelo's intelligence or her API): for what she says, and for putting tasks in categories. */
-    val thinking: Thinking by lazy { Thinking(settings, api, engine, localModel, novelo) }
+    val thinking: Thinking by lazy { Thinking(settings, api, engine, localModel, server) }
 
     /** The open tasks with no category go into one when the app starts. */
     val organizer: com.villamediana.novelo.mind.Organizer by lazy { com.villamediana.novelo.mind.Organizer(db, thinking) }
@@ -97,7 +106,7 @@ class AppGraph(context: Context) {
             scope = scope,
             db = db,
             recorder = recorder,
-            hearing = Hearing(settings, api, engine, localModel, appContext.cacheDir),
+            hearing = Hearing(settings, api, engine, localModel, appContext.cacheDir, server),
             thinking = thinking,
             keeper = Keeper(db),
             reminders = reminders,
@@ -106,8 +115,8 @@ class AppGraph(context: Context) {
             dir = captures,
             offline = { WhenOnline.schedule(appContext) },
             peek = com.villamediana.novelo.mind.PhonePeek(appContext, MlKitPhotoReader(appContext)),
-            // Who sees: Omni on the phone, or her API (Ajustes › Inteligência › Quem vê).
-            about = com.villamediana.novelo.mind.Seeing(settings, api, com.villamediana.novelo.mind.OmniAbout(engine, localModel)),
+            // Who sees: the Novelo, Omni on the phone, or her API (Ajustes › Inteligência › Quem vê).
+            about = com.villamediana.novelo.mind.Seeing(settings, api, com.villamediana.novelo.mind.OmniAbout(engine, localModel), server),
         )
     }
 
@@ -198,15 +207,31 @@ class AppGraph(context: Context) {
         }
     }.getOrNull()
 
-    /** The backup to the folder she chose (Ajustes › Backup), and the import back. */
+    private val backupCore: Backup by lazy { Backup(db, captures, File(appContext.filesDir, "backup-state.json"), reminders, BuildConfig.VERSION_NAME) }
+
+    /** The backup in the cloud (Novelo+): encrypted on the phone, kept on the Novelo's server. */
+    val cloud: com.villamediana.novelo.backup.CloudBackup by lazy {
+        com.villamediana.novelo.backup.CloudBackup(
+            server = server,
+            core = backupCore,
+            settings = settings,
+            keeper = com.villamediana.novelo.backup.GoogleKeeper(appContext),
+            stateFile = File(appContext.filesDir, "cloud-state.json"),
+            workDir = appContext.cacheDir,
+            version = BuildConfig.VERSION_NAME,
+        )
+    }
+
+    /** The backup to the folder she chose and to the cloud (Ajustes › Backup), and the import back. */
     val backups: Backups by lazy {
         Backups(
             context = appContext,
-            core = Backup(db, captures, File(appContext.filesDir, "backup-state.json"), reminders, BuildConfig.VERSION_NAME),
+            core = backupCore,
             settings = settings,
             mind = mind,
             scope = scope,
             joinDays = { library.joinDayDiaries() },
+            cloud = cloud,
         )
     }
 

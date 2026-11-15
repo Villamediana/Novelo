@@ -28,24 +28,38 @@ object NoAbout : About {
 }
 
 /**
- * Who sees (Ajustes › Inteligência › Quem vê): Omni on the phone, or her API — the photo (or a
- * document's first page) goes to it with the same ask. A failure says nothing (the text read on the
- * phone still goes to the model that thinks).
+ * Who sees (Ajustes › Inteligência › Quem vê): the Novelo (its server), Omni on the phone, or her
+ * API — the photo (or a document's first page) goes to it with the same ask. A failure says
+ * nothing (the text read on the phone still goes to the model that thinks).
  */
 class Seeing(
     private val settings: com.villamediana.novelo.settings.Settings,
     private val api: com.villamediana.novelo.ai.Api,
     private val phone: About,
+    private val server: com.villamediana.novelo.server.NoveloServer,
 ) : About {
     override suspend fun photo(image: ByteArray): String? = when (settings.current().see) {
-        com.villamediana.novelo.settings.Source.NOVELO -> phone.photo(image)
-        com.villamediana.novelo.settings.Source.API ->
-            if (image.isEmpty()) null else byApi(OmniAbout.PHOTO, t(com.villamediana.novelo.R.string.see_photo_ask), image)?.let { OmniAbout.clean(it, 400) }
+        com.villamediana.novelo.settings.Source.LOCAL -> phone.photo(image)
+        else -> if (image.isEmpty()) null else online(OmniAbout.PHOTO, t(com.villamediana.novelo.R.string.see_photo_ask), image)?.let { OmniAbout.clean(it, 400) }
     }
 
     override suspend fun file(file: FileSeen, said: String?, look: ByteArray?): String? = when (settings.current().see) {
-        com.villamediana.novelo.settings.Source.NOVELO -> phone.file(file, said, look)
-        com.villamediana.novelo.settings.Source.API -> byApi(OmniAbout.FILE, OmniAbout.ask(file, said), look)?.lineSequence()?.firstOrNull()?.let { OmniAbout.clean(it, 180) }
+        com.villamediana.novelo.settings.Source.LOCAL -> phone.file(file, said, look)
+        else -> online(OmniAbout.FILE, OmniAbout.ask(file, said), look)?.lineSequence()?.firstOrNull()?.let { OmniAbout.clean(it, 180) }
+    }
+
+    /** By the Novelo's server or by her API, whichever sees. */
+    private suspend fun online(ask: String, user: String, image: ByteArray?): String? {
+        if (settings.current().see == com.villamediana.novelo.settings.Source.API) return byApi(ask, user, image)
+        if (noveloNeed(server) != null) return null
+        val system = ask.replace("{lang}", Lang.current.label)
+        return try {
+            server.ask("see", chatBody(system, user, image = image)).text
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            null
+        }
     }
 
     private suspend fun byApi(ask: String, user: String, image: ByteArray?): String? {
