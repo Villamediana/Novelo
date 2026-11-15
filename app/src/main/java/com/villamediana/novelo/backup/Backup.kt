@@ -45,6 +45,8 @@ class Backup(
     private val version: String,
     private val zone: () -> ZoneId = { ZoneId.systemDefault() },
     private val clock: () -> Long = System::currentTimeMillis,
+    /** The search by meaning's space: its vectors go in the file as vectors.bin and come back. */
+    private val space: com.villamediana.novelo.local.Space = com.villamediana.novelo.local.Space.EG2_512,
 ) {
     private val lock = Mutex()
 
@@ -64,7 +66,7 @@ class Backup(
             val snap = snapshot()
             if (snap.entries.isEmpty() && snap.captures.isEmpty() && snap.meds.isEmpty()) return@withContext Saved(0, 0, null, empty = true)
             val state = readState(key)
-            val same = sha(json.encodeToString(Snapshot.serializer(), snap.copy(madeAt = 0)).toByteArray(Charsets.UTF_8))
+            val same = fingerprint(snap)
             val counted = Saved(snap.entries.size, snap.photoCount, null, sounds = snap.soundCount, files = snap.files.size)
             val there = FILE in root.files()
             if (same == state.last && there) return@withContext counted
@@ -76,7 +78,7 @@ class Backup(
                 // before it was reinstalled): never written over — it stays beside, with its date.
                 if (there && state.last.isEmpty()) aside = keepAside(root, work)
                 val zip = File(work, "backup.zip")
-                writeZip(zip, snap)
+                writeZip(zip, snap, vectors())
                 root.copyIn(FILE, zip)
             } finally {
                 work.deleteRecursively()
@@ -86,7 +88,20 @@ class Backup(
         }
     }
 
-    private fun writeZip(to: File, snap: Snapshot) {
+    /** The search by meaning's vectors, as they are now. */
+    private suspend fun vectors(): List<com.villamediana.novelo.data.Vector> = db.vectors().ordered(space.id)
+
+    /**
+     * What the backup is (to know whether anything changed since the last one): what an import puts
+     * back, and which vectors there are (the texts they were made from, not their numbers).
+     */
+    private suspend fun fingerprint(snap: Snapshot): String {
+        val keys = db.vectors().keys().filter { it.space == space.id }.sortedWith(compareBy({ it.kind }, { it.itemId }, { it.chunk }))
+        val meaning = keys.joinToString("") { "${it.kind}.${it.itemId}.${it.chunk}.${it.hash};" }
+        return sha((json.encodeToString(Snapshot.serializer(), snap.copy(madeAt = 0)) + "\n" + space.id + "\n" + meaning).toByteArray(Charsets.UTF_8))
+    }
+
+    private fun writeZip(to: File, snap: Snapshot, vectors: List<com.villamediana.novelo.data.Vector> = emptyList()) {
         val byId = snap.captures.associateBy { it.id }
         ZipOutputStream(BufferedOutputStream(to.outputStream())).use { z ->
             // Photos and sounds hardly shrink: the quickest packing is enough.
@@ -97,6 +112,12 @@ class Backup(
                 z.closeEntry()
             }
             put(INSIDE, json.encodeToString(Snapshot.serializer(), snap).toByteArray(Charsets.UTF_8))
+            // The meanings: an import on a new phone searches by meaning at once.
+            if (vectors.isNotEmpty()) {
+                z.putNextEntry(ZipEntry(VectorsFile.NAME))
+                VectorsFile.write(z, space.id, space.dims, vectors)
+                z.closeEntry()
+            }
             Readable.files(snap, zone()).toSortedMap().forEach { (path, text) -> put(path, text.toByteArray(Charsets.UTF_8)) }
             Readable.meds(snap, zone())?.let { put(Readable.MEDS, it.toByteArray(Charsets.UTF_8)) }
             val files = snap.photos.mapNotNull { (id, rel) -> byId[id]?.imagePath?.let { it to rel } } +
@@ -145,11 +166,14 @@ class Backup(
                 } else {
                     read(root, name) to (oldHome(root) ?: throw IOException(NOT_FOUND))
                 }
-                val r = putBack(snap, home)
+                // Its meanings, when it has them (from 1.74.0) and they are of this space.
+                val meanings = File(work, VectorsFile.NAME).takeIf { it.isFile }?.inputStream()?.buffered()?.use(VectorsFile::read)
+                    ?.takeIf { it.space == space.id && it.dims == space.dims }?.rows.orEmpty()
+                val r = putBack(snap, home, meanings)
                 // The folder's file is now what the app has: the next backup doesn't write it again
                 // (nor keeps it aside as someone else's).
                 if (name == FILE && key != null) {
-                    writeState(State(key, last = sha(json.encodeToString(Snapshot.serializer(), snapshot().copy(madeAt = 0)).toByteArray(Charsets.UTF_8))))
+                    writeState(State(key, last = fingerprint(snapshot())))
                 }
                 r
             } finally {
@@ -173,7 +197,7 @@ class Backup(
             val work = work()
             try {
                 val zip = File(work, "aside.zip")
-                writeZip(zip, snap)
+                writeZip(zip, snap, vectors())
                 val name = asideName()
                 root.copyIn(name, zip)
                 name
@@ -193,7 +217,7 @@ class Backup(
         return name
     }
 
-    private suspend fun putBack(snap: Snapshot, home: Shelf): Restored {
+    private suspend fun putBack(snap: Snapshot, home: Shelf, meanings: List<com.villamediana.novelo.data.Vector> = emptyList()): Restored {
         // The photos into the app first: if one fails, nothing in the app has changed.
         val made = ArrayList<File>()
         val restored = HashMap<Long, String>()
@@ -249,6 +273,10 @@ class Backup(
             b.putCaptures(captures)
             db.meds().putAll(snap.meds)
             db.meds().putTaken(snap.medsTaken.filter { it.medId in medIds })
+            // The meanings of what came back (none of something it doesn't have); an older backup has none: they are made again.
+            val captureIds = captures.map { it.id }.toSet()
+            db.vectors().clear()
+            db.vectors().put(meanings.filter { if (it.kind == com.villamediana.novelo.data.Vector.KIND_ENTRY) it.itemId in entryIds else it.itemId in captureIds })
         }
         // What was replaced leaves the app with its files.
         val now = captures.flatMap { listOfNotNull(it.imagePath, it.audioPath, it.filePath) }.toSet()

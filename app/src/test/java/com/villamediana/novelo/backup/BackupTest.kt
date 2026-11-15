@@ -398,4 +398,43 @@ class BackupTest {
         val b = Entry(id = 7, kind = "note", title = "Lista", createdAt = now, updatedAt = now)
         assertEquals(setOf("Notas/Lista.md", "Notas/Lista (#7).md"), Readable.files(Snapshot(entries = listOf(b, a)), zone).keys)
     }
+
+    private fun meaning(kind: Int, id: Long, chunk: Int = 0, space: String = com.villamediana.novelo.local.Space.EG2_512.id) =
+        com.villamediana.novelo.data.Vector(kind, id, chunk, space, id * 7 + chunk, chunk * 800, 0.01f, ByteArray(512) { (it % 100).toByte() })
+
+    @Test
+    fun theMeaningsGoInTheFileAndComeBack() = runBlocking {
+        val ids = aDay()
+        val v = db.vectors()
+        v.put(listOf(meaning(0, ids.getValue("diary")), meaning(0, ids.getValue("open")), meaning(1, ids.getValue("photo")), meaning(0, ids.getValue("open"), chunk = 1)))
+        backup().save(root, key = "k")
+        assertTrue(VectorsFile.NAME in inside())
+        assertFalse(text(Backup.INSIDE).contains("vec"))
+        // Only new meanings (a pass that made them): a new backup, with them.
+        v.put(listOf(meaning(0, ids.getValue("done"))))
+        val r = backup().save(root, key = "k")
+        assertNotNull(r.snapshot)
+        assertEquals(5, VectorsFile.read(inside().getValue(VectorsFile.NAME).inputStream())!!.rows.size)
+        // Nothing changed: nothing written.
+        assertNull(backup().save(root, key = "k").snapshot)
+        // A new phone: everything comes back, the meanings too (none of something it doesn't have).
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { db.clearAllTables() }
+        v.put(listOf(meaning(0, 12345)))
+        backup().restore(root, Backup.FILE, key = "k")
+        val back = v.keys().map { Triple(it.kind, it.itemId, it.chunk) }.toSet()
+        assertEquals(setOf(Triple(0, ids.getValue("diary"), 0), Triple(0, ids.getValue("open"), 0), Triple(0, ids.getValue("open"), 1), Triple(1, ids.getValue("photo"), 0), Triple(0, ids.getValue("done"), 0)), back)
+        assertTrue(v.all(com.villamediana.novelo.local.Space.EG2_512.id).first().vec.contentEquals(ByteArray(512) { (it % 100).toByte() }))
+        // What came back is what the folder has: no backup again.
+        assertNull(backup().save(root, key = "k").snapshot)
+    }
+
+    @Test
+    fun aBackupWithoutMeaningsLeavesNoneAndTheyAreMadeAgain() = runBlocking {
+        aDay()
+        backup().save(root, key = "k")
+        assertFalse(VectorsFile.NAME in inside())
+        db.vectors().put(listOf(meaning(0, 1), meaning(0, 2, space = "other/d512")))
+        backup().restore(root, Backup.FILE, key = "k")
+        assertTrue(db.vectors().keys().isEmpty())
+    }
 }

@@ -50,6 +50,9 @@ class Recall(
 
     data class Hit(val entry: Entry, val score: Double, val matched: Set<String>)
 
+    /** The entry [id] among those searched (one found by meaning). */
+    fun entry(id: Long): Entry? = byId[id]
+
     /** The query's own words that can find something (short words are noise). */
     fun terms(query: String): List<String> = Words.of(query).filter { it.length >= 3 || it.any(Char::isDigit) }.distinct()
 

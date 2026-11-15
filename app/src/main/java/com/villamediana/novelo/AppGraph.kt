@@ -17,7 +17,6 @@ import com.villamediana.novelo.local.LocalEngine
 import com.villamediana.novelo.local.LocalModel
 import com.villamediana.novelo.mind.Hearing
 import com.villamediana.novelo.mind.Keeper
-import com.villamediana.novelo.mind.Meaning
 import com.villamediana.novelo.mind.Mind
 import com.villamediana.novelo.mind.MlKitPhotoReader
 import com.villamediana.novelo.mind.Thinking
@@ -88,8 +87,26 @@ class AppGraph(context: Context) {
     val takenNow: kotlinx.coroutines.flow.StateFlow<List<com.villamediana.novelo.data.MedTaken>?> by lazy {
         library.allTaken().stateIn(scope, kotlinx.coroutines.flow.SharingStarted.Eagerly, null)
     }
-    /** The search by meaning: the words her notes may use for what she looks for — from Omni on the phone, else from whoever thinks. */
-    val meaning: Meaning by lazy { Meaning(engine, localModel, online = { system, user -> thinking.plain(system, user) }, onlineReady = { thinking.ready() }) }
+    /**
+     * The search by meaning's model on the phone (EmbeddingGemma 2, 176 MB): it comes by itself on
+     * the first Wi-Fi, in its own folder; until then the search finds by words.
+     */
+    val senseModel: LocalModel by lazy {
+        LocalModel(appContext, scope, parts = listOf(LocalModel.SENSE), folder = "models/sense", leftovers = emptyList(), what = R.string.local_pack_sense).also { model ->
+            // Here: everything kept gets its meaning.
+            scope.launch { model.state.collect { if (it == LocalModel.State.Ready) senses.soon() } }
+        }
+    }
+
+    /** Who makes a meaning: the model on the phone, when this build has the engine. */
+    val embedder: com.villamediana.novelo.local.Embedder by lazy {
+        if (LocalEngine.available) com.villamediana.novelo.local.SenseEngine({ senseModel.file }) else com.villamediana.novelo.local.NoEmbedder
+    }
+
+    /** The search by meaning: every note, photo and file's meaning, kept and compared on the phone. */
+    val senses: com.villamediana.novelo.mind.Senses by lazy {
+        com.villamediana.novelo.mind.Senses(db, embedder, scope, busy = { mind.working }, changed = { backups.soon() })
+    }
     /** What she was writing and didn't send (kept a day). */
     val draft: Draft by lazy { Draft(appContext.getSharedPreferences("draft", Context.MODE_PRIVATE)) }
 
@@ -117,6 +134,8 @@ class AppGraph(context: Context) {
             peek = com.villamediana.novelo.mind.PhonePeek(appContext, MlKitPhotoReader(appContext)),
             // Who sees: the Novelo, Omni on the phone, or her API (Ajustes › Inteligência › Quem vê).
             about = com.villamediana.novelo.mind.Seeing(settings, api, com.villamediana.novelo.mind.OmniAbout(engine, localModel), server),
+            // What is near what she says by meaning goes to the model with what her words found.
+            near = senses,
         )
     }
 

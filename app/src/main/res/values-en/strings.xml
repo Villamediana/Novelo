@@ -104,7 +104,6 @@
     <string name="fmt_weekday_day_month">EEEE, MMMM d</string>
     <string name="fmt_weekday_day_month_year">EEEE, MMMM d, yyyy</string>
     <string name="search_nothing">Nothing found</string>
-    <string name="search_by_meaning">Looking by meaning…</string>
     <string name="photos">Photos</string>
     <string name="done_hide">Hide done</string>
     <string name="done_show">Show done (%1$d)</string>
@@ -138,6 +137,9 @@
     <string name="ai_api">API</string>
     <string name="ai_who_thinks">Who thinks</string>
     <string name="local_pack_hear">Novelo\'s ears</string>
+    <string name="local_pack_sense">Novelo\'s search by meaning</string>
+    <string name="sense_title">Search by meaning</string>
+    <string name="sense_about">Finds by meaning too: another word for the same thing, another language. Each note, photo and file\'s meaning is made right here on the phone (EmbeddingGemma 2, by Google) and goes in the backup; searching uses no internet. It comes by itself on the first Wi-Fi; until then, search finds by words.</string>
     <string name="local_file_damaged_any">it arrived damaged; download it again</string>
     <string name="ai_novelo">Novelo</string>
     <string name="need_novelo_not_in_version">Novelo\'s intelligence isn\'t in this version — use your own in Settings</string>

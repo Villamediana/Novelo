@@ -9,6 +9,7 @@ import com.villamediana.novelo.data.NoveloDatabase
 import com.villamediana.novelo.data.Kind
 import com.villamediana.novelo.data.Outcome
 import com.villamediana.novelo.data.Status
+import com.villamediana.novelo.data.Vector
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -131,6 +132,8 @@ class Mind(
     private val peek: FilePeek = NoPeek,
     /** What a photo shows and what a file is, said on the phone (Omni): kept for the search, and given to the model. */
     private val about: About = NoAbout,
+    /** What is near what she says by meaning (the search by meaning, on the phone). */
+    private val near: Nearby = Nearby.NONE,
 ) {
     private val _state = MutableStateFlow<MindState>(MindState.Idle)
     val state: StateFlow<MindState> = _state
@@ -850,7 +853,10 @@ class Mind(
         val recall by lazy { Recall(all, topics, ties, links) }
         val open = db.entries().openTasks()
         val focus = c.focusEntryId?.let { db.entries().get(it) }
-        val hits = Recall(live, topics, ties, links).search(said, 12, now).map { it.entry }
+        // What her words find, and what is near them by meaning (another word for the same thing, another language).
+        val liveById = live.associateBy { it.id }
+        val byMeaning = if (photo && said.isBlank()) emptyList() else near.near(said, Vector.KIND_ENTRY, liveById.keys, 12).mapNotNull { liveById[it.id] }
+        val hits = Fuse.rrf(Recall(live, topics, ties, links).search(said, 12, now).map { it.entry }, byMeaning).take(12)
         val sentPhotos = sent.take(MAX_SENT_SEEN).mapNotNull(Photo::of)
         val heard = if (photo && said.isBlank()) "(nenhum texto legível na foto)" else said
 
@@ -860,7 +866,12 @@ class Mind(
         // being described needs no others), a few at first; more when the model asks to look.
         var photoIndex: PhotoRecall? = null
         suspend fun pictures(): PhotoRecall = photoIndex ?: PhotoRecall(db.captures().allPhotos().filter { p -> p.id != c.id && p.partOf != c.id && sent.none { it.id == p.id } }.mapNotNull(Photo::of)).also { photoIndex = it }
-        val photoHits = if (photo || fileAlone) emptyList() else pictures().search(said, FIRST_PHOTO_HITS)
+        suspend fun nearPhotos(text: String, limit: Int): List<Photo> {
+            val all = pictures().all
+            val byId = all.associateBy { it.id }
+            return near.near(text, Vector.KIND_PHOTO, byId.keys, limit).mapNotNull { byId[it.id] }
+        }
+        val photoHits = if (photo || fileAlone) emptyList() else Fuse.rrf(pictures().search(said, FIRST_PHOTO_HITS), nearPhotos(said, FIRST_PHOTO_HITS)).take(FIRST_PHOTO_HITS)
 
         val taken = if (photo && !together) c.createdAt else null
         val before = before(c, live)
@@ -877,11 +888,14 @@ class Mind(
         while (plan.isLookupOnly && lookups < MAX_LOOKUPS) {
             lookups++
             if (currentCoroutineContext().isActive) show(MindState.Working(c.id, Stage.LOOKING, said, photo))
-            val byWords = if (plan.search.isEmpty()) emptyList() else recall.search(plan.search.joinToString(" "), 15, now).map { it.entry }
+            val asked = plan.search.joinToString(" ")
+            val allById = all.associateBy { it.id }
+            val byWords = if (plan.search.isEmpty()) emptyList()
+                else Fuse.rrf(recall.search(asked, 15, now).map { it.entry }, near.near(asked, Vector.KIND_ENTRY, allById.keys, 15).mapNotNull { allById[it.id] }).take(15)
             val days = Brain.range(plan.period, z)
             val byTime = if (days == null) emptyList() else all.filter { e -> e.createdAt in days || e.doneAt?.let { it in days } == true || e.dueAt?.let { it in days } == true }
             found = (found + byWords + byTime).distinctBy { it.id }
-            foundPhotos = (foundPhotos + (if (plan.search.isEmpty()) emptyList() else pictures().search(plan.search.joinToString(" "), MAX_PHOTO_HITS)) +
+            foundPhotos = (foundPhotos + (if (plan.search.isEmpty()) emptyList() else Fuse.rrf(pictures().search(asked, MAX_PHOTO_HITS), nearPhotos(asked, MAX_PHOTO_HITS)).take(MAX_PHOTO_HITS)) +
                 (if (days == null) emptyList() else pictures().during(days, MAX_PHOTO_HITS))).distinctBy { it.id }
             looked += Brain.looked(plan)
             val next = Brain.context(heard, now, z, open, found, focus, recent, looked = looked.joinToString(" · "), photo = photo, typed = typed, diary = diary, photos = foundPhotos, takenAt = taken, before = before, sent = sentPhotos, files = files, fileAlone = fileAlone, seen = shows, categories = categories, meds = meds, taken = takenToday, together = together)

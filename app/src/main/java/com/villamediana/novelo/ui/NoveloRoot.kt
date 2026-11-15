@@ -46,6 +46,8 @@ fun NoveloRoot(ask: Ask?, onAskHandled: () -> Unit) {
             while (true) {
                 delay(60_000)
                 graph.engine.releaseIfIdle()
+                // The search by meaning's model too, after a couple of minutes unused (~190 MB).
+                graph.embedder.releaseIfIdle(2 * 60_000L)
             }
         }
     }

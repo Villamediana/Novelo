@@ -14,11 +14,11 @@ Pessoas, lugares, projetos e assuntos citados viram nós de um **grafo**. É ele
 
 A **câmera** do app lê o que está na foto (um papel, um quadro, um recibo) e guarda do mesmo jeito; a foto também vai pra galeria do celular na hora.
 
-A **busca** acha pelas palavras e pelo sentido: as outras palavras que podem ter sido usadas pra mesma coisa vêm do Omni, no próprio celular, ou de quem pensa quando ele não está baixado (só o que foi digitado na busca vai).
+A **busca** acha pelas palavras e pelo sentido (outra palavra pra mesma coisa, outra língua): o sentido de cada nota, tarefa, diário, foto e arquivo vira uma lista de números feita no próprio celular (EmbeddingGemma 2, do Google, Apache 2.0) e guardada junto no backup. Buscar não usa internet: nem o que ela digita sai do celular.
 
 ## Primeiros passos
 
-Na primeira vez o app pede as permissões e a pasta do backup. Nada pra baixar, nada pra configurar. O app fala português, inglês ou espanhol.
+Na primeira vez o app pede as permissões e a pasta do backup. Nada pra configurar. No primeiro Wi-Fi o app baixa sozinho, uma vez, a busca por sentido (176 MB); até lá a busca acha pelas palavras. O app fala português, inglês ou espanhol.
 
 ## Onde roda
 
@@ -50,4 +50,4 @@ JDK 21, Android SDK 37 e NDK 29 (o NDK só pro motor no celular). O endereço do
 tools/release.sh -n $'- novidade'            # versão nova, com o motor no celular (ver docs/ARCHITECTURE.md)
 ```
 
-Licenças: llama.cpp (MIT); os modelos LFM3 são baixados do Hugging Face sob a LFM Open License v1.0.
+Licenças: llama.cpp (MIT); os modelos LFM3 são baixados do Hugging Face sob a LFM Open License v1.0; o EmbeddingGemma 2 (Google), sob a Apache 2.0.

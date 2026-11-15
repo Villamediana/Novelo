@@ -104,7 +104,6 @@
     <string name="fmt_weekday_day_month">EEEE, d \'de\' MMMM</string>
     <string name="fmt_weekday_day_month_year">EEEE, d \'de\' MMMM \'de\' yyyy</string>
     <string name="search_nothing">No se encontró nada</string>
-    <string name="search_by_meaning">Buscando por el sentido…</string>
     <string name="photos">Fotos</string>
     <string name="done_hide">Ocultar hechas</string>
     <string name="done_show">Ver hechas (%1$d)</string>
@@ -138,6 +137,9 @@
     <string name="ai_api">API</string>
     <string name="ai_who_thinks">Quién piensa</string>
     <string name="local_pack_hear">Oído del Novelo</string>
+    <string name="local_pack_sense">Búsqueda por sentido del Novelo</string>
+    <string name="sense_title">Búsqueda por sentido</string>
+    <string name="sense_about">Encuentra también por el sentido: otra palabra para lo mismo, otro idioma. El sentido de cada nota, foto y archivo se hace aquí en el celular (EmbeddingGemma 2, de Google) y va en el backup; buscar no usa internet. Llega sola con el primer Wi-Fi; hasta entonces, la búsqueda encuentra por las palabras.</string>
     <string name="local_file_damaged_any">llegó con defecto; descárgalo de nuevo</string>
     <string name="ai_novelo">Novelo</string>
     <string name="need_novelo_not_in_version">la inteligencia del Novelo no viene en esta versión — usa la tuya en Ajustes</string>

@@ -253,10 +253,10 @@ class KeeperAndMindTest {
         override suspend fun file(file: FileSeen, said: String?, look: ByteArray?): String? { asked += file to said; return next.removeFirstOrNull() }
     }
 
-    private fun mind(ears: Ears, thinker: Thinker, sync: ReminderSync = Synced(), recorder: Recorder = Recorder(), mic: com.villamediana.novelo.mind.MicHolder = NoMic, scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO), photos: PhotoReader = NoPhotos, offline: () -> Unit = {}, peek: FilePeek = NoPeek, about: About = NoAbout) = Mind(
+    private fun mind(ears: Ears, thinker: Thinker, sync: ReminderSync = Synced(), recorder: Recorder = Recorder(), mic: com.villamediana.novelo.mind.MicHolder = NoMic, scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO), photos: PhotoReader = NoPhotos, offline: () -> Unit = {}, peek: FilePeek = NoPeek, about: About = NoAbout, near: Nearby = Nearby.NONE) = Mind(
         scope = scope,
         db = db, recorder = recorder, hearing = ears, thinking = thinker, keeper = keeper(), reminders = sync,
-        photos = photos, mic = mic, dir = tmp.root, zone = { zone }, clock = { now }, offline = offline, peek = peek, about = about,
+        photos = photos, mic = mic, dir = tmp.root, zone = { zone }, clock = { now }, offline = offline, peek = peek, about = about, near = near,
     )
 
     private fun voiceFile(): File = tmp.newFile("v.wav").also { f ->
@@ -1089,5 +1089,26 @@ class KeeperAndMindTest {
         val e = db.entries().get(id)!!
         assertEquals("No Power Apps, com tela de aprovação.", e.body)
         assertEquals("App de aprovação", e.title)
+    }
+
+    @Test
+    fun whatIsNearByMeaningGoesToTheModelToo() = runBlocking {
+        // An old note, with no word of what she asks; six newer things push it out of the last ones.
+        val plumber = db.entries().insert(Entry(kind = "note", title = "Telefone do encanador", body = "Seu Zé, (11) 98765-4321", createdAt = now - 86_400_000L * 30, updatedAt = now - 86_400_000L * 30))
+        repeat(6) { db.entries().insert(Entry(kind = "note", title = "Outra coisa $it", createdAt = now - 1000L * it, updatedAt = now - 1000L * it)) }
+        val asked = mutableListOf<String>()
+        val near = object : Nearby {
+            override suspend fun near(text: String, kind: Int, allowed: Set<Long>?, limit: Int): List<SenseIndex.Near> {
+                asked += text
+                return if (kind == com.villamediana.novelo.data.Vector.KIND_ENTRY && allowed?.contains(plumber) == true) listOf(SenseIndex.Near(plumber, 0.7f, 0)) else emptyList()
+            }
+        }
+        val thinker = FakeThinker(ArrayDeque(listOf("""{"reply":"É o Seu Zé."}""")))
+        val m = mind(FakeEars(""), thinker, near = near)
+        m.write("hay algún número de reparos")
+        answered(m)
+        assertTrue(asked.contains("hay algún número de reparos"))
+        val prompt = thinker.prompts.single()
+        assertTrue(prompt, prompt.contains("LEMBRANÇAS QUE PODEM TER A VER:") && prompt.contains("Telefone do encanador"))
     }
 }

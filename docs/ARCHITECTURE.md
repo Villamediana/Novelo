@@ -80,7 +80,7 @@ provedor nas duas: "Usar a mesma chave de quem pensa/ouve" copia a chave com um 
 (`Hearing.byApi`): a gravação inteira quando para de falar (até 20 MB), ou pedaços de 5 min nas pausas, cada um guardado
 (`api:300p`); só o ouvido do celular ouve enquanto ela fala. A chave de quem ouve é `hear_by` (a antiga `hear` do Fio
 podia dizer "api"). Sem o ouvido no celular, fotos e arquivos ficam sem a descrição do Omni (o texto lido nelas segue)
-e a busca por sentido vira só por palavras. Primeiros passos (1.56): o 2º passo é "Quem vai ouvir você?" — o
+e a busca por sentido não depende dele (1.74.0). Primeiros passos (1.56): o 2º passo é "Quem vai ouvir você?" — o
 ouvido do Novelo (baixa; sem o Baixar não segue) ou a API dela (provedor que ouve, chave, modelo; nada pra baixar).
 O "Começar" do último passo só espera o ouvido quando é o Novelo que ouve (`earsNeeded`). O idioma da fala é
 sempre automático (sem opção) e o backup vai sozinho todo dia (sem frequência a escolher). No diário, as fotos do dia vêm antes do texto, que fica numa página
@@ -124,7 +124,7 @@ hora, e na aba Hoje nada diz "hoje" (nem o status em "Em andamento").
 | `audio/` | `Recorder`, `Wav` (ler/escrever, `Pieces.cut` no silêncio), `MicService` (um serviço em primeiro plano só: microfone enquanto grava, dataSync + wake lock enquanto transcreve e organiza, pra minimizar não parar nada) |
 | `ai/Api` | OpenAI-compatível: `models`, `transcribe`, `chat`; chave em `Authorization: Bearer` e `api-key` |
 | `local/` | `LocalEngine` (JNI → `app/src/main/cpp/novelo_engine.cpp`), `LocalModel` (DownloadManager + SHA-256) |
-| `mind/` | `Mind` (orquestra), `Brain` (prompt, contexto, parse, datas, GBNF), `Keeper` (grava o Plan), `Recall` (busca + grafo), `Meaning` (busca por sentido com o Omni), `Engines` (Hearing/Thinking por Ajustes), `PhotoText` (ML Kit OCR + JPEG) |
+| `mind/` | `Mind` (orquestra), `Brain` (prompt, contexto, parse, datas, GBNF), `Keeper` (grava o Plan), `Recall` (busca + grafo), `Senses`/`SenseText`/`SenseIndex` (busca por sentido no celular), `Engines` (Hearing/Thinking por Ajustes), `PhotoText` (ML Kit OCR + JPEG) |
 | `data/` | Room: `entries`, `captures`, `entities`, `entry_topics`, `links`, `progress`; `Library` (ações da UI) |
 | `remind/` | `Reminders`, `ReminderReceiver` (Feito · Daqui a 1 h · Falar), `RearmReceiver` |
 | `settings/` | DataStore + `Vault` (AES-GCM com chave no AndroidKeyStore) |
@@ -423,23 +423,52 @@ continua dono da lógica: monta o pedido inteiro e o servidor só escolhe o mode
   (`SHOW_INTELLIGENCE = false`, `intelligenceShown`) enquanto ela está toda no Novelo e ele atende.
 - **Fora do app desde a 1.73.0**: a chave da OpenRouter embutida (`NoveloKey`) e o rodízio de modelos grátis (`NoveloModels`); o
   rodízio agora é o último recurso do servidor.
-- **Busca por sentido** (`Meaning`): com o Omni no celular, é nele (nada sai do aparelho); sem ele, quem pensa dá as palavras
-  (`Thinking.plain`: só o que ela digitou na busca vai, pedido simples, uma vez por busca).
+- **Busca por sentido**: no celular desde a 1.74.0 (ver "Busca por sentido"); nada vai pro servidor.
 - **Código do aparelho**: Ajustes, embaixo da versão (`NoveloServer.code`): é o que ela informa pra pedir que o servidor
   apague o registro do aparelho dela.
 - **Build**: `NOVELO_SERVER_URL` em `~/.config/novelo/server.env` → `BuildConfig.NOVELO_SERVER`.
 
-## Busca por sentido
+## Busca por sentido (no celular desde a 1.74.0)
 
-A busca da biblioteca acha pelas palavras dela (`Recall`/`PhotoRecall`, na hora) e, quando ela para de
-digitar (180 ms + 500 ms), pelo sentido: `mind/Meaning` pede ao Omni (o mesmo do ouvido, no celular, sem
-rede e sem baixar mais nada) as palavras que as anotações dela podem ter usado pra aquilo — a mesma coisa
-dita de outro jeito e nas outras línguas, e o que anda junto (quem faz, o lugar, o objeto). Lista JSON presa
-por gramática (até 16 palavras), sem as da busca; o que essas palavras acham vem depois do que as dela acharam,
-e elas também ficam marcadas nos cartões. As instruções rodam uma vez e ficam guardadas (`fixed`, o retrato
-do motor); abrir a busca já carrega o Omni (`warm`). Mudou a busca, o pedido anterior para na hora
-(`LocalEngine.cancel(tag)` só para o trabalho daquele pedido, nunca uma transcrição). Respostas ficam numa
-memória de 50 buscas. Sem o ouvido baixado, só palavras.
+Até a 1.73 o sentido vinha de palavras pedidas a um modelo a cada busca (o Omni no celular, ou quem pensa pelo
+servidor). Agora cada coisa guardada tem o seu sentido como números, feitos uma vez no celular e guardados:
+
+- **Modelo**: EmbeddingGemma 2 (Google, Apache 2.0), `embeddinggemma-2-UD-Q4_K_XL.gguf` da Unsloth (175,7 MB, revisão
+  `031f0d4b`, SHA-256 conferido como o Omni) — `LocalModel.SENSE`, pasta `models/sense`, baixado sozinho no primeiro Wi-Fi
+  (`NoveloApplication`; Ajustes › Busca por sentido mostra, e deixa baixar com dados ou tirar). Roda no mesmo llama.cpp do
+  Omni (`novelo_sense.h`, chamado por `SenseEngine` no JNI de `novelo_engine.cpp`), com pooling do próprio modelo, e tem
+  handle e trava próprios (nunca tira o Omni da memória); solto depois de 2 min sem uso (~190 MB). Sem o motor (build de
+  debug, testes): `NoEmbedder` e a busca acha pelas palavras.
+- **Espaço** (`Space.EG2_512`): os 512 primeiros dos 768 números (o modelo é treinado pra ser cortado), de comprimento 1;
+  busca = `task: search result | query: …`, item = `title: … | text: …`. Outro modelo, tamanho ou prompt = outro `id`, e tudo
+  é feito de novo sozinho.
+- **O que vira sentido** (`SenseText`): nota/tarefa/diário — título (o do diário é a data: `none`), texto, etapas, e no
+  primeiro pedaço as tags e os nomes do grafo; até 1.000 caracteres vai inteiro, mais que isso em pedaços de até 800 desde o
+  começo (parágrafos, linhas, frases), então o que se soma no fim (o diário do dia) não muda os pedaços de antes; até 32
+  pedaços. Sensível: só título, tags e nomes, nunca o texto. Foto: o que se vê e o texto lido (até 1.000). Arquivo: o nome
+  e o que ele é.
+- **Guardado** (`data/Vectors`, banco v14): um por pedaço (`kind`, `itemId`, `chunk`), com o espaço, o hash do texto
+  (SHA-256, 64 bits), onde o pedaço começa e os números em 8 bits com uma escala (erro medido < 0,003 no cosseno). Sem
+  chave estrangeira: o que sobra de algo apagado sai na próxima passada.
+- **Passada** (`Senses`): toda mudança em entries/captures/entities/entry_topics marca uma passada 2 s depois; ela faz só o
+  que falta ou mudou (o mesmo texto de novo — um item que volta, uma cópia — pega os números que já existem), tira o que
+  não existe mais, e espera (ou para) enquanto o Mind trabalha. Peça que o modelo não consegue não é tentada de novo na
+  mesma execução. Uma passada que mudou algo pede um backup.
+- **Backup**: `vectors.bin` ao lado do `backup.json` (`VectorsFile`: "NVEC", versão, espaço, tamanho; cada um com tipo,
+  item, pedaço, começo, hash, escala e números). Entra na impressão digital do backup (os hashes, não os números): só vetores
+  novos já fazem um backup novo. Importar põe de volta os vetores do mesmo espaço de itens que voltaram; backup antigo (ou de
+  outro espaço) deixa a tabela vazia e a passada faz tudo de novo. Um app antigo ignora o arquivo.
+- **Buscar** (`LibraryScreen`): o que ela digitou (180 ms depois) vira números no celular (~50 ms; memória de 64 buscas)
+  e é comparado com todos (`SenseIndex`, tudo em memória, alguns ms): cada item pelo pedaço mais perto, nada abaixo de 0,62
+  nem a mais de 0,07 do mais perto (medido: o que a busca procura ≥ 0,65; nove em dez do resto < 0,64). Palavras e sentido
+  viram uma ordem só (`Fuse.rrf`, as palavras pesam um pouco mais): achado dos dois jeitos vem primeiro. Notas, fotos (só
+  as soltas) e arquivos (fora de algo sensível). As palavras marcadas nos cartões são só as dela.
+- **Perguntar** (`Mind.think`): o que está perto do que ela disse pelo sentido vai pro modelo junto com o que as palavras
+  acharam (lembranças e fotos; nas buscas que o modelo pede também), esperando o sentido no máximo 1,5 s.
+- **Conferido no computador** (`tools/sense-check`): o mesmo `novelo_sense.h` com o mesmo modelo dá os mesmos números do
+  `llama-embedding` do llama.cpp (cosseno 1,000000) e acha a nota certa em primeiro nas 11 buscas inventadas (PT/ES/EN, ex.:
+  "hay algún número de reparos" → "Telefone do encanador"); ~70 ms por nota em 2 núcleos. Os vetores dessas notas
+  inventadas estão em `app/src/test/resources/sense` (`SenseIndexTest`).
 
 ## Arquivos (1.31.0)
 
@@ -651,7 +680,7 @@ pras outras telas passou a seguir 70% do dedo (`SWIPE_FOLLOW = 0.7f`).
   documento sem texto) vai pro modelo dela com o mesmo pedido; falha não diz nada (o texto lido no celular segue).
 - Ajustes › Inteligência: linha "Quem vê"; o modelo do celular aparece quando ouve ou vê pelo Novelo ("Ouvido e olhos
   do Novelo"). Primeiros passos: "Quem vai ver suas fotos e documentos?" só quando a API ouve. Home: faltando quem
-  vê, o cartão diz (`Missing.SEE`, `locks = false`) e o botão não trava. A busca por sentido segue no Omni do celular.
+  vê, o cartão diz (`Missing.SEE`, `locks = false`) e o botão não trava. A busca por sentido é do celular (1.74.0).
 - Junto (1.66.0): dose futura não é marcada ("vou dar às 10" é horário; `taken_at` adiante de agora é ignorado), e o
   Hoje mostra só os horários das últimas 2 horas e o próximo (`nearTimes`); o dia inteiro fica em Remédios.
 
