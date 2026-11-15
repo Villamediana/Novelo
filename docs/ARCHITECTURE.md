@@ -645,8 +645,15 @@ pras outras telas passou a seguir 70% do dedo (`SWIPE_FOLLOW = 0.7f`).
 
 Igual ao FreeSong: bump de `versionCode`/`versionName` → commit → branch + PR + merge → na main limpa
 `tools/release.sh -n $'- novidade'`. O script confere git, versão, pacote e o certificado
-(SHA-256 `f538e500…48bffc`, chave em `~/keystores/novelo-release.jks`), publica e só diz `published`
+(SHA-256 `428becff…1d4858`, chave em `~/keystores/novelo-release.jks`), publica e só diz `published`
 quando `/releases/latest` bate. Notas = o texto da tela "Nova versão" no celular.
+
+A chave mudou na 1.73.0: a de antes (`f538e500…48bffc`) se perdeu com a máquina de build. O Android não instala
+a 1.73.0 por cima da 1.72.0 ou anterior (o "Atualizar" termina em `CONFLICT`): quem tem a versão antiga desinstala
+e instala a APK da release, com os dados pelo backup. Com a chave nova o `ANDROID_ID` também muda, então pro
+servidor é um aparelho novo; o certificado aceito na verificação do aparelho (`app_cert_sha256`, no painel)
+passa a ser o novo. A keystore e a senha (`~/keystores/novelo-keystore.properties`) precisam de cópia fora
+desta máquina.
 
 O botão "Atualizar" baixa a versão nova com o app segurando um serviço em primeiro plano (`update/UpdateService`,
 dataSync, progresso numa notificação silenciosa, CPU acordada até 20 min): minimizado ou com a tela apagada, o
