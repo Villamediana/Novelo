@@ -33,8 +33,6 @@ class Backups(
     private val settings: Settings,
     private val mind: Mind,
     private val scope: CoroutineScope,
-    /** The backup in the cloud (Novelo+), beside or instead of the folder's. */
-    val cloud: CloudBackup? = null,
     /** One diary a day, after an import too (an older backup may have days with two). */
     private val joinDays: suspend () -> Unit = {},
 ) {
@@ -63,7 +61,6 @@ class Backups(
                     kotlinx.coroutines.delay(if (quiet < QUIET_MS) QUIET_MS - quiet else BUSY_MS)
                 }
                 if (settings.current().backupFolder.isNotBlank()) save()
-                if (settings.current().cloud) cloudSave()
             }
         }
     }
@@ -83,7 +80,6 @@ class Backups(
     fun soon() {
         lastChange = android.os.SystemClock.elapsedRealtime()
         runCatching { BackupWorker.soon(context) }
-        if (settings.now.value.cloud) runCatching { CloudWorker.soon(context) }
         runner.start()
         changes.trySend(Unit)
     }
@@ -133,67 +129,7 @@ class Backups(
         return restore(Backup.FILE).onFailure { settings.setBackupFailed(it.message.orEmpty()) }.getOrNull()?.let { there to it }
     }
 
-    /** Nothing in the app yet: a backup can come back without replacing anything. */
-    suspend fun empty(): Boolean = core.empty()
-
-    fun now(): Job = scope.launch {
-        save()
-        cloudSave()
-    }
-
-    /** One backup to the cloud (when it is on). False when it is off or didn't go. */
-    suspend fun cloudSave(): Boolean {
-        val c = cloud ?: return false
-        if (!settings.current().cloud) return false
-        _busy.value = SAVING
-        return try {
-            c.save()
-        } finally {
-            _busy.value = null
-        }
-    }
-
-    /**
-     * The cloud backup on, and a first backup right away. True when the secret went to her Google
-     * account's safe too (when not, only the recovery code brings the backup back).
-     */
-    suspend fun cloudOn(): Boolean {
-        val c = cloud ?: return false
-        val safe = c.turnOn()
-        runCatching { CloudWorker.soon(context) }
-        scope.launch { cloudSave() }
-        return safe
-    }
-
-    /** The cloud backup off; [erase]: what is there is erased too. A failure to erase is told (nothing is turned back on). */
-    suspend fun cloudOff(erase: Boolean): Result<Unit> = runCatching {
-        cloud?.turnOff(erase)
-        Unit
-    }.recoverCatching { throw IOException(cloud?.said(it) ?: it.message.orEmpty()) }
-
-    /** The backup [seed] opens, brought back from the cloud in place of everything. */
-    suspend fun cloudRestore(seed: ByteArray): Result<Backup.Restored> {
-        val c = cloud ?: return Result.failure(IOException(t(R.string.backup_not_found)))
-        if (!mind.idle) return Result.failure(IOException(t(R.string.backup_wait_busy)))
-        _busy.value = IMPORTING
-        val r = try {
-            Result.success(c.restore(seed))
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (e: Throwable) {
-            Result.failure(IOException(c.said(e), e))
-        } finally {
-            _busy.value = null
-        }
-        if (r.isSuccess) {
-            runCatching { joinDays() }
-            mind.restored()
-            // The folder's file (when there is a folder) and the cloud follow what came back.
-            save()
-            scope.launch { cloudSave() }
-        }
-        return r
-    }
+    fun now(): Job = scope.launch { save() }
 
     /** One backup, its result kept for Ajustes. False when there is no folder or it went wrong. */
     suspend fun save(): Boolean {
@@ -310,31 +246,6 @@ class BackupWorker(appContext: Context, params: WorkerParameters) : CoroutineWor
                 .setInitialDelay(days, TimeUnit.DAYS)
                 .build()
             wm.enqueueUniquePeriodicWork(NAME, if (replace) ExistingPeriodicWorkPolicy.CANCEL_AND_REENQUEUE else ExistingPeriodicWorkPolicy.KEEP, request)
-        }
-    }
-}
-
-/**
- * The backup to the cloud when the app isn't there to do it: once there is a network, after a
- * change. What didn't go (no network, the server busy) is tried again later; what went stays there.
- */
-class CloudWorker(appContext: Context, params: WorkerParameters) : CoroutineWorker(appContext, params) {
-    override suspend fun doWork(): Result {
-        val graph = NoveloApplication.graph
-        if (!graph.settings.current().cloud) return Result.success()
-        if (graph.mind.working) return Result.retry()
-        return if (graph.backups.cloudSave() || runAttemptCount >= 5) Result.success() else Result.retry()
-    }
-
-    companion object {
-        private const val SOON = "cloud-backup-soon"
-
-        fun soon(context: Context) {
-            val request = androidx.work.OneTimeWorkRequestBuilder<CloudWorker>()
-                .setConstraints(Constraints.Builder().setRequiredNetworkType(androidx.work.NetworkType.CONNECTED).build())
-                .setInitialDelay(2, TimeUnit.MINUTES)
-                .build()
-            WorkManager.getInstance(context).enqueueUniqueWork(SOON, androidx.work.ExistingWorkPolicy.KEEP, request)
         }
     }
 }

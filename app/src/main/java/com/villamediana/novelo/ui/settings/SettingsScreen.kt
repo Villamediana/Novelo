@@ -205,11 +205,8 @@ internal fun intelligenceSummary(s: NoveloSettings, local: LocalModel.State, nov
 
 /** The backup in a few words; true when it needs her. */
 internal fun backupSummary(s: NoveloSettings, busy: String?): Pair<String, Boolean> = when {
-    s.backupFolder.isBlank() && !s.cloud -> t(R.string.backup_choose_where) to true
+    s.backupFolder.isBlank() -> t(R.string.backup_choose_where) to true
     busy == Backups.SAVING -> t(R.string.backup_doing) to false
-    s.cloud && s.cloudFailed -> s.cloudNote to true
-    // Only in the cloud (no folder): that is a whole backup too.
-    s.backupFolder.isBlank() -> (t(R.string.backup_cloud_only) + if (s.cloudAt > 0) " · " + t(R.string.backup_last, moment(s.cloudAt)) else "") to false
     s.backupFailed -> s.backupNote to true
     s.backupAt > 0 -> t(R.string.backup_daily_last, moment(s.backupAt)) to false
     else -> t(R.string.backup_daily) to false

@@ -1,10 +1,7 @@
 package com.villamediana.novelo.server
 
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -13,7 +10,6 @@ import mockwebserver3.Dispatcher
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
 import mockwebserver3.RecordedRequest
-import okio.Buffer
 import java.security.KeyFactory
 import java.security.MessageDigest
 import java.security.PublicKey
@@ -23,25 +19,21 @@ import java.util.Base64
 
 /**
  * The Novelo's server, as the app sees it: it registers a phone's key, checks every signature the
- * way the real one does (the same text, the same algorithm), answers the asks, and keeps a vault
- * of backup pieces in memory.
+ * way the real one does (the same text, the same algorithm), and answers the asks.
  */
 class FakeNovelo : Dispatcher() {
     val web = MockWebServer()
     val url: String get() = web.url("/").toString().trimEnd('/')
 
     class Ask(val job: String, val body: String, val request: String, val not: String?)
-    class Vault(val token: String, val blobs: HashMap<String, ByteArray> = HashMap(), val manifests: ArrayList<Pair<ByteArray, List<String>>> = ArrayList())
 
     val devices = HashMap<String, PublicKey>()
     val installs = ArrayList<String?>()
     val asks = ArrayList<Ask>()
-    val vaults = HashMap<String, Vault>()
-    val puts = ArrayList<String>()
 
     /** What the next asks answer: the text of a model, or a whole response. */
     @Volatile var reply: (Ask, Int) -> MockResponse = { _, _ -> answer("ok") }
-    @Volatile var plan = """{"kind":"plus","active":true,"backup":true}"""
+    @Volatile var plan = """{"kind":"plus","active":true}"""
 
     /** The server's clock is this far from the phone's. */
     @Volatile var clockAhead = 0L
@@ -68,8 +60,6 @@ class FakeNovelo : Dispatcher() {
     fun error(status: Int, code: String, extra: String = ""): MockResponse = body("""{"error":{"code":"$code","message":"$code"$extra}}""", status)
 
     private fun body(text: String, status: Int = 200) = MockResponse.Builder().code(status).addHeader("Content-Type", "application/json").body(text).build()
-
-    private fun bytes(data: ByteArray) = MockResponse.Builder().code(200).addHeader("Content-Type", "application/octet-stream").body(Buffer().write(data)).build()
 
     @Synchronized
     override fun dispatch(request: RecordedRequest): MockResponse {
@@ -107,31 +97,6 @@ class FakeNovelo : Dispatcher() {
             val ask = Ask(path.removePrefix("/v1/ask/"), raw.toString(Charsets.UTF_8), rid, request.headers["X-Novelo-Not"])
             asks += ask
             return reply(ask, asks.size)
-        }
-        Regex("^/v1/backup/([A-Za-z0-9_-]{32})(?:/(have|manifest|blobs)(?:/([A-Za-z0-9_-]+))?)?$").find(path)?.let { m ->
-            val (vaultId, what, piece) = m.destructured
-            val token = request.headers["X-Novelo-Vault"].orEmpty()
-            val writes = request.method == "PUT" || request.method == "POST"
-            if (writes && !plan.contains("\"backup\":true")) return error(402, "plan", ""","plan":$plan""")
-            val vault = vaults[vaultId] ?: if (writes) Vault(token).also { vaults[vaultId] = it } else return error(404, "no_backup")
-            if (vault.token != token) return error(403, "vault_key")
-            return when {
-                what == "" && request.method == "DELETE" -> body("""{"ok":true}""").also { vaults.remove(vaultId) }
-                what == "have" -> {
-                    val ids = json.parseToJsonElement(raw.toString(Charsets.UTF_8)).jsonObject.getValue("ids").jsonArray.map { it.jsonPrimitive.content }
-                    body(buildJsonObject { put("missing", JsonArray(ids.filter { it !in vault.blobs }.map(::JsonPrimitive))) }.toString())
-                }
-                what == "blobs" && request.method == "PUT" -> body("""{"ok":true}""").also { vault.blobs[piece] = raw; puts += piece }
-                what == "blobs" -> vault.blobs[piece]?.let(::bytes) ?: error(404, "not_found")
-                what == "manifest" && request.method == "PUT" -> {
-                    val o = json.parseToJsonElement(raw.toString(Charsets.UTF_8)).jsonObject
-                    val refs = o.getValue("refs").jsonArray.map { it.jsonPrimitive.content }
-                    if (refs.any { it !in vault.blobs }) error(409, "missing")
-                    else body("""{"ok":true,"id":${vault.manifests.size + 1}}""").also { vault.manifests += Base64.getDecoder().decode(o.getValue("data").jsonPrimitive.content) to refs }
-                }
-                what == "manifest" -> vault.manifests.lastOrNull()?.let { bytes(it.first) } ?: error(404, "no_backup")
-                else -> error(404, "not_found")
-            }
         }
         return error(404, "not_found")
     }

@@ -114,7 +114,7 @@ class NoveloMindTest {
         fake.reply = { _, _ -> fake.answer("não sei") }
         assertTrue(meaning.words("contrato").isEmpty())
         // Nobody to ask (the Novelo's is over for this phone, no API of hers): it isn't offered.
-        fake.reply = { _, _ -> fake.error(402, "plan", ""","plan":{"kind":"ended","active":false,"backup":false}""") }
+        fake.reply = { _, _ -> fake.error(402, "plan", ""","plan":{"kind":"ended","active":false}""") }
         runCatching { thinking.plain("i", "u") }
         assertTrue(server.ended)
         assertFalse(meaning.available())
@@ -131,7 +131,7 @@ class NoveloMindTest {
         assertEquals("see", fake.asks.last().job)
         assertTrue(fake.asks.last().body.contains("data:image/jpeg;base64,"))
         // The server says the Novelo's intelligence is over for this phone.
-        val ended = """{"kind":"ended","active":false,"backup":false}"""
+        val ended = """{"kind":"ended","active":false}"""
         fake.reply = { _, _ -> fake.error(402, "plan", ""","plan":$ended""") }
         assertNull(seeing.photo(byteArrayOf(1, 2, 3)))
         assertTrue(server.ended)

@@ -18,7 +18,7 @@ A **busca** acha pelas palavras e pelo sentido: as outras palavras que podem ter
 
 ## Primeiros passos
 
-Na primeira vez o app pede as permissões e onde fica o backup: na nuvem do Novelo (um toque), numa pasta do celular, ou nos dois. Nada pra baixar, nada pra configurar. O app fala português, inglês ou espanhol.
+Na primeira vez o app pede as permissões e a pasta do backup. Nada pra baixar, nada pra configurar. O app fala português, inglês ou espanhol.
 
 ## Onde roda
 
@@ -35,8 +35,7 @@ Sem internet, o que você disser fica guardado e vai sozinho quando a rede volta
 
 ## Backup
 
-- **Na nuvem (Novelo+)**: o celular cifra tudo (AES-256-GCM) e manda em pedaços; cada pedaço vai uma vez só. O servidor guarda arquivos que não consegue abrir. O segredo fica no celular, no cofre da conta Google (volta sozinho ao reinstalar ou trocar de aparelho) e num **código de recuperação** pra anotar.
-- **Numa pasta**: um arquivo `Novelo backup.zip`, atualizado a cada mudança.
+Um arquivo `Novelo backup.zip` na pasta que você escolhe (no celular ou num drive que aparece na lista), atualizado a cada mudança.
 
 ## Atualização
 

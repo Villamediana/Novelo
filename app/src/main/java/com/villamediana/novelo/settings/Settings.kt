@@ -115,11 +115,6 @@ data class NoveloSettings(
     /** What the last backup took ("120 itens · 34 fotos"), or why it didn't go. */
     val backupNote: String = "",
     val backupFailed: Boolean = false,
-    /** The backup in the cloud (Novelo+): on, when it last went well, what it took or why it didn't go. */
-    val cloud: Boolean = false,
-    val cloudAt: Long = 0,
-    val cloudNote: String = "",
-    val cloudFailed: Boolean = false,
     /** The first steps (permissions, backup, intelligence) were gone through. */
     val setupDone: Boolean = false,
     /** The library's tabs in her order ("today,tasks,diary…"); empty: the usual order. */
@@ -182,10 +177,6 @@ class Settings(private val context: Context, scope: CoroutineScope) {
             backupAt = p[BACKUP_AT] ?: 0L,
             backupNote = p[BACKUP_NOTE].orEmpty(),
             backupFailed = p[BACKUP_FAILED] ?: false,
-            cloud = p[CLOUD_ON] ?: false,
-            cloudAt = p[CLOUD_AT] ?: 0L,
-            cloudNote = p[CLOUD_NOTE].orEmpty(),
-            cloudFailed = p[CLOUD_FAILED] ?: false,
             setupDone = p[SETUP_DONE] ?: false,
             tabOrder = p[TAB_ORDER].orEmpty(),
             tabsHidden = p[TABS_HIDDEN].orEmpty(),
@@ -272,46 +263,11 @@ class Settings(private val context: Context, scope: CoroutineScope) {
         it[BACKUP_FAILED] = true
     }
 
-    /**
-     * The secret the cloud backup is made from (16 bytes): sealed here, and nowhere else in the app.
-     * Whoever has it reads the backup; without it nobody does — not even the server that keeps it.
-     */
-    suspend fun cloudSeed(): ByteArray? = store.data.first()[CLOUD_SEED]?.let { vault.open(it) }?.let { runCatching { Base64.decode(it, Base64.NO_WRAP) }.getOrNull() }?.takeIf { it.size == 16 }
-
-    suspend fun setCloudSeed(seed: ByteArray?) = store.edit { p ->
-        if (seed == null) p.remove(CLOUD_SEED) else p[CLOUD_SEED] = vault.seal(Base64.encodeToString(seed, Base64.NO_WRAP))
-    }
-
-    suspend fun setCloud(on: Boolean) = store.edit {
-        it[CLOUD_ON] = on
-        if (!on) {
-            it.remove(CLOUD_AT)
-            it.remove(CLOUD_NOTE)
-            it.remove(CLOUD_FAILED)
-        }
-    }
-
-    suspend fun setCloudDone(at: Long, note: String) = store.edit {
-        it[CLOUD_AT] = at
-        it[CLOUD_NOTE] = note
-        it[CLOUD_FAILED] = false
-    }
-
-    suspend fun setCloudFailed(note: String) = store.edit {
-        it[CLOUD_NOTE] = note
-        it[CLOUD_FAILED] = true
-    }
-
     private companion object {
         /** Who does each job, since the Novelo has its own intelligence (1.73). */
         val HEAR_SRC = stringPreferencesKey("hear_src")
         val SEE_SRC = stringPreferencesKey("see_src")
         val THINK_SRC = stringPreferencesKey("think_src")
-        val CLOUD_ON = booleanPreferencesKey("cloud_on")
-        val CLOUD_AT = longPreferencesKey("cloud_at")
-        val CLOUD_NOTE = stringPreferencesKey("cloud_note")
-        val CLOUD_FAILED = booleanPreferencesKey("cloud_failed")
-        val CLOUD_SEED = stringPreferencesKey("cloud_seed_sealed")
 
         /** Before that: "local" was the Novelo's (ears on the phone, free models online), "api" hers. Read only to carry "api" over. */
         val HEAR_BY = stringPreferencesKey("hear_by")

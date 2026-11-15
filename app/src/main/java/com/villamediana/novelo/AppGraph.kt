@@ -62,7 +62,7 @@ class AppGraph(context: Context) {
             scope.launch { model.state.collect { if (it == LocalModel.State.Ready) mind.retryPending() } }
         }
     }
-    /** The Novelo's server: its own intelligence (it hears, sees and thinks) and the cloud backup. */
+    /** The Novelo's server: its own intelligence (it hears, sees and thinks). */
     val server: com.villamediana.novelo.server.NoveloServer by lazy {
         com.villamediana.novelo.server.NoveloServer(
             http = http,
@@ -209,20 +209,7 @@ class AppGraph(context: Context) {
 
     private val backupCore: Backup by lazy { Backup(db, captures, File(appContext.filesDir, "backup-state.json"), reminders, BuildConfig.VERSION_NAME) }
 
-    /** The backup in the cloud (Novelo+): encrypted on the phone, kept on the Novelo's server. */
-    val cloud: com.villamediana.novelo.backup.CloudBackup by lazy {
-        com.villamediana.novelo.backup.CloudBackup(
-            server = server,
-            core = backupCore,
-            settings = settings,
-            keeper = com.villamediana.novelo.backup.GoogleKeeper(appContext),
-            stateFile = File(appContext.filesDir, "cloud-state.json"),
-            workDir = appContext.cacheDir,
-            version = BuildConfig.VERSION_NAME,
-        )
-    }
-
-    /** The backup to the folder she chose and to the cloud (Ajustes › Backup), and the import back. */
+    /** The backup to the folder she chose (Ajustes › Backup), and the import back. */
     val backups: Backups by lazy {
         Backups(
             context = appContext,
@@ -231,7 +218,6 @@ class AppGraph(context: Context) {
             mind = mind,
             scope = scope,
             joinDays = { library.joinDayDiaries() },
-            cloud = cloud,
         )
     }
 

@@ -22,7 +22,7 @@ val signingProps = Properties().apply {
 val llamaDir = (findProperty("novelo.llama") as String?)?.takeIf { it.isNotBlank() }?.let { File(it) }
 val withNative = llamaDir != null && File(llamaDir, "CMakeLists.txt").exists()
 
-// The Novelo's own intelligence and the cloud backup live on the novelo-server. Its address is not
+// The Novelo's own intelligence lives on the novelo-server. Its address is not
 // a secret, but it isn't fixed in the repo: ~/.config/novelo/server.env (NOVELO_SERVER_URL=https://…)
 // or the env var NOVELO_SERVER_URL, read at build time. A build without it has only her own
 // intelligence (the model on the phone, or her API) and the backup in a folder.
@@ -205,7 +205,6 @@ dependencies {
     implementation(libs.camera.lifecycle)
     implementation(libs.camera.view)
     implementation(libs.mlkit.text)
-    implementation(libs.play.blockstore)
     implementation(libs.exif)
 
     testImplementation(libs.junit)

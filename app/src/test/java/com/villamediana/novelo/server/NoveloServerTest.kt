@@ -43,7 +43,7 @@ class NoveloServerTest {
         assertEquals(1, fake.devices.size)
         assertEquals(listOf<String?>("a".repeat(40)), fake.installs)
         // The plan is what the server said on registering.
-        assertEquals(Plan("plus", active = true, backup = true), s.plan.value)
+        assertEquals(Plan("plus", active = true), s.plan.value)
         assertFalse(s.ended)
         // Asked again: the same phone, no new registration; every signature checked.
         s.ask("think", chatBody("i", "u"), not = listOf("r7"))
@@ -118,7 +118,7 @@ class NoveloServerTest {
     fun theTrialIsOverWhenTheServerSaysSo() = runBlocking {
         val s = server()
         s.ask("think", chatBody("i", "u"))
-        val ended = """{"kind":"ended","active":false,"backup":false}"""
+        val ended = """{"kind":"ended","active":false}"""
         fake.reply = { _, _ -> fake.error(402, "plan", ""","plan":$ended""") }
         try {
             s.ask("think", chatBody("i", "u"))
@@ -130,8 +130,8 @@ class NoveloServerTest {
         // Kept: the app opened again knows without asking.
         assertTrue(server().ended)
         // And back when the server says so.
-        fake.plan = """{"kind":"trial","active":true,"backup":false,"trial_ends":123}"""
-        assertEquals(Plan("trial", active = true, backup = false, trialEnds = 123), s.me())
+        fake.plan = """{"kind":"trial","active":true,"trial_ends":123}"""
+        assertEquals(Plan("trial", active = true, trialEnds = 123), s.me())
         assertFalse(s.ended)
     }
 

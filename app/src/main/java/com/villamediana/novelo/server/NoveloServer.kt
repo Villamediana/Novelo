@@ -47,25 +47,24 @@ class ServerException(val status: Int, val code: String, message: String, val re
 
 /**
  * What this phone has, as the server says (the app never decides it): the trial, Novelo+, or
- * neither any more. [active]: the Novelo's intelligence answers; [backup]: the cloud takes the backup.
+ * neither any more. [active]: the Novelo's intelligence answers.
  */
 @Serializable
 data class Plan(
     val kind: String = "",
     val active: Boolean = false,
-    val backup: Boolean = false,
     @SerialName("trial_ends") val trialEnds: Long = 0,
 )
 
 /** An answer of a model, and which one gave it (to skip it if the answer can't be used). */
 data class Answer(val text: String, val route: String)
 
-/** What came back from a request that isn't an ask (the backup's). */
+/** What came back from the server, whatever the status. */
 class Reply(val status: Int, val bytes: ByteArray, val header: (String) -> String?)
 
 /**
  * The Novelo's server: its own intelligence (the app sends the request whole — the instructions,
- * what she said, the photo or the sound — and gets the model's answer) and the cloud backup.
+ * what she said, the photo or the sound — and gets the model's answer).
  * Every request is signed with the phone's key ([KeyBox]); the phone registers itself the first
  * time, and again by itself if the server no longer knows it.
  */
@@ -142,10 +141,6 @@ class NoveloServer(
         val root = parse(send("GET", "/v1/me", null, null))
         return json.decodeFromJsonElement<Plan>(root["plan"] ?: throw IOException("no plan")).also(::keep)
     }
-
-    /** A signed request that isn't an ask (the backup's): what came back, whatever the status. */
-    suspend fun call(method: String, path: String, body: ByteArray? = null, type: String? = null, headers: Map<String, String> = emptyMap()): Reply =
-        send(method, path, body, type, headers)
 
     /** The JSON of [reply]; an error in it (even under a 200: the answer began before the outcome was known) is thrown. */
     fun parse(reply: Reply): JsonObject {

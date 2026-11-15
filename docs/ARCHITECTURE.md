@@ -407,21 +407,6 @@ continua dono da lógica: monta o pedido inteiro e o servidor só escolhe o mode
   apague o registro do aparelho dela.
 - **Build**: `NOVELO_SERVER_URL` em `~/.config/novelo/server.env` → `BuildConfig.NOVELO_SERVER`.
 
-## Backup na nuvem (1.73.0)
-
-O mesmo conteúdo do backup em pasta (`Backup.parts()`: backup.json + fotos, sons e arquivos), cifrado no celular e mandado em
-pedaços (`backup/CloudBackup`, `backup/CloudCrypto`).
-
-- Um segredo de 16 bytes; dele saem (HKDF-SHA256) a chave AES-256-GCM, a chave dos nomes, o id do cofre e o token do cofre.
-- Pedaço = até 4 MB; nome = HMAC do conteúdo (o mesmo conteúdo não sobe duas vezes); cifrado com o nome como AAD. Um índice cifrado
-  por versão diz quais pedaços a compõem. `cloud-state.json` lembra os pedaços de cada arquivo (foto não é relida a cada backup).
-- O segredo mora no DataStore (selado pelo AndroidKeyStore), no Block Store do Google (`SeedKeeper`/`GoogleKeeper`: volta ao
-  reinstalar ou num celular novo) e no **código de recuperação** (28 caracteres com verificação).
-- Trazer de volta: baixa tudo pra uma pasta de trabalho, confere cada pedaço, e só então troca o que o app tem
-  (`Backup.restoreFolder`). Ligar a nuvem com um backup dela já lá e o app vazio = trazer de volta.
-- Vai sozinho a cada mudança (`Backups`, junto do backup em pasta) e pelo `CloudWorker` (com rede) se o app fechar.
-- Teste de ponta a ponta contra o servidor de verdade: `NoveloLiveTest` com `NOVELO_E2E_URL`.
-
 ## Busca por sentido
 
 A busca da biblioteca acha pelas palavras dela (`Recall`/`PhotoRecall`, na hora) e, quando ela para de
