@@ -339,6 +339,8 @@
     <string name="stage_hearing_part">Transcrevendo… parte %1$d de %2$d</string>
     <string name="stage_seeing">Olhando a foto…</string>
     <string name="stage_seeing_many">Olhando as fotos… %1$d de %2$d</string>
+    <string name="stage_seeing_all">Olhando as %1$d fotos…</string>
+    <string name="stage_reading_many">Lendo as fotos… %1$d de %2$d</string>
     <string name="stage_files">Vendo o que é o arquivo…</string>
     <string name="stage_files_many">Vendo os arquivos… %1$d de %2$d</string>
     <string name="delete_item_title">Apagar este item?</string>
@@ -501,6 +503,7 @@
     <string name="setup_see_own_line">Um modelo que enxerga imagem (GPT-4o mini, Gemini…), com a sua chave.</string>
     <string name="ready_see">Falta quem vê suas fotos e documentos.</string>
     <string name="see_photo_ask">Descreva esta foto.</string>
+    <string name="see_photos_ask">Descreva cada uma destas fotos.</string>
     <string name="section_through_day">Ao longo do dia</string>
     <string name="ai_local">Celular</string>
     <string name="ai_hears_novelo">Novelo ouve</string>

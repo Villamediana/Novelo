@@ -326,6 +326,8 @@ Os campos que existem:
         /** Her medicines (and the ones that ended), with the times taken (today's ticked, each treatment's doses counted). */
         meds: List<com.villamediana.novelo.data.Med> = emptyList(),
         taken: List<com.villamediana.novelo.data.MedTaken> = emptyList(),
+        /** Only photos, sent together ([sent]) with nothing said: each one's text goes whole. */
+        together: Boolean = false,
     ): String = buildString {
         // What changes least comes first and what changes every time last (the moment, the item
         // being answered about, the words): a server that caches the start of the prompt, and the
@@ -412,7 +414,7 @@ Os campos que existem:
             sent.forEachIndexed { i, p ->
                 append(i + 1).append(". ").append(stamp(p.takenAt, zone))
                 p.description?.let { append(" · o que se vê: ").append(it.take(SEEN).replace('\n', ' ')) }
-                p.text?.let { append(" · texto: ").append(it.take(160).replace('\n', ' ')) }
+                p.text?.let { append(" · texto: ").append(it.take(if (together) TOGETHER_TEXT else 160).replace('\n', ' ')) }
                 append('\n')
             }
         }
@@ -426,6 +428,11 @@ Os campos que existem:
         if (files.isNotEmpty()) {
             append("\nOS ARQUIVOS QUE ELA MANDOU JUNTO (").append(files.size).append("):\n")
             files.forEachIndexed { i, f -> append(i + 1).append(". ").append(fileLine(f)).append('\n') }
+        }
+        if (together) {
+            // Nothing said: the photos are the whole of it, each one where it belongs.
+            append("\nELA SÓ MANDOU AS FOTOS, SEM DIZER NADA.\n")
+            return@buildString
         }
         append(
             when {
@@ -615,6 +622,9 @@ ws     ::= [ \t\n]{0,20}
     private const val MAX_RECENT = 5
     private const val MAX_FOUND = 40
     private const val MAX_PHOTOS = 12
+
+    /** What is written in each photo sent alone with others: what she would have sent alone goes whole (up to this). */
+    private const val TOGETHER_TEXT = 1500
     private const val BEFORE_SAID = 400
     private const val BEFORE_REPLY = 200
     private const val MAX_BEFORE_ITEMS = 6

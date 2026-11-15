@@ -71,24 +71,28 @@ class Api(private val http: OkHttpClient) {
     /** A chat answer. [jsonOut]: asks for a JSON object. [image]: a JPEG seen together with the text. */
     /** [effort]: the reasoning level for a model that reasons ("low"), left out when null. */
     /** [lowDetail]: the photo looked at lightly (a fraction of the tokens; its text comes read already). */
-    fun chat(ep: Endpoint, model: String, system: String, user: String, image: ByteArray? = null, jsonOut: Boolean = true, effort: String? = null, lowDetail: Boolean = false): String {
-        if (ep.wire == Wire.ANTHROPIC) return messages(ep, model, system, user, image, effort)
+    /** [images]: several photos, each after its number ("1:", "2:"…), so each answer is the right photo's. */
+    fun chat(ep: Endpoint, model: String, system: String, user: String, image: ByteArray? = null, jsonOut: Boolean = true, effort: String? = null, lowDetail: Boolean = false, images: List<ByteArray> = listOfNotNull(image)): String {
+        if (ep.wire == Wire.ANTHROPIC) return messages(ep, model, system, user, images, effort)
         val payload = buildJsonObject {
             put("model", model)
             putJsonArray("messages") {
                 addJsonObject { put("role", "system"); put("content", system) }
                 addJsonObject {
                     put("role", "user")
-                    if (image == null) {
+                    if (images.isEmpty()) {
                         put("content", user)
                     } else {
                         putJsonArray("content") {
                             addJsonObject { put("type", "text"); put("text", user) }
-                            addJsonObject {
-                                put("type", "image_url")
-                                putJsonObject("image_url") {
-                                    put("url", "data:image/jpeg;base64," + Base64.encodeToString(image, Base64.NO_WRAP))
-                                    if (lowDetail) put("detail", "low")
+                            images.forEachIndexed { i, img ->
+                                if (images.size > 1) addJsonObject { put("type", "text"); put("text", "${i + 1}:") }
+                                addJsonObject {
+                                    put("type", "image_url")
+                                    putJsonObject("image_url") {
+                                        put("url", "data:image/jpeg;base64," + Base64.encodeToString(img, Base64.NO_WRAP))
+                                        if (lowDetail) put("detail", "low")
+                                    }
                                 }
                             }
                         }
@@ -116,7 +120,7 @@ class Api(private val http: OkHttpClient) {
      * again without it ([ApiAsks]). On the models that take it, a declined answer is retried by the
      * server on a fallback model ("fallbacks": "default").
      */
-    private fun messages(ep: Endpoint, model: String, system: String, user: String, image: ByteArray?, effort: String?): String {
+    private fun messages(ep: Endpoint, model: String, system: String, user: String, images: List<ByteArray>, effort: String?): String {
         val fallback = model in FALLBACK_MODELS
         val payload = buildJsonObject {
             put("model", model)
@@ -134,12 +138,15 @@ class Api(private val http: OkHttpClient) {
                 addJsonObject {
                     put("role", "user")
                     putJsonArray("content") {
-                        if (image != null) addJsonObject {
-                            put("type", "image")
-                            putJsonObject("source") {
-                                put("type", "base64")
-                                put("media_type", "image/jpeg")
-                                put("data", Base64.encodeToString(image, Base64.NO_WRAP))
+                        images.forEachIndexed { i, img ->
+                            if (images.size > 1) addJsonObject { put("type", "text"); put("text", "${i + 1}:") }
+                            addJsonObject {
+                                put("type", "image")
+                                putJsonObject("source") {
+                                    put("type", "base64")
+                                    put("media_type", "image/jpeg")
+                                    put("data", Base64.encodeToString(img, Base64.NO_WRAP))
+                                }
                             }
                         }
                         addJsonObject { put("type", "text"); put("text", user) }

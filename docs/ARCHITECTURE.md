@@ -353,6 +353,24 @@ Novelo backup.zip
   fala/texto (não quando a captura é uma foto), até 4 no primeiro olhar, 8 quando o modelo pede busca.
 - **Tela**: índice de busca de fotos montado uma vez por lista; proporção das fotos lida fora da
   thread principal (`rememberAspects`); miniaturas decodificadas no tamanho certo e guardadas num LRU.
+- **Várias fotos, um olhar só (1.74.0)**: quem vê (o Novelo ou a API dela) recebe as fotos que vão juntas num
+  pedido só — cada uma depois do número dela (`"1:"`, `"2:"`…, em `chatBody`/`Api.chat` com `images`) — e devolve
+  um JSON `{"1": "…", "2": "…"}` (`OmniAbout.PHOTOS`, lido por `OmniAbout.numbered`): uma descrição por foto, nunca
+  uma só pra todas (elas podem ser de coisas sem nada a ver). As instruções e a viagem saem uma vez, e é uma espera
+  em vez de uma por foto. O que a resposta deixa de fora — ou tudo, quando o pedido falha — é olhado sozinho, como
+  antes (`About.photos`; no celular o Omni segue uma por uma). O texto de cada foto continua lido no celular (ML Kit),
+  uma por uma (`Mind.read`), e nada se olha de novo numa nova tentativa (`Mind.seenAll` guarda cada descrição).
+- **Fotos mandadas sozinhas, juntas (1.74.0)**: as da galeria (ou soltas juntas) esperavam cada uma o seu ver e o seu
+  pensar — 10 fotos, 20 pedidos em fila. Agora `Mind.photos` grava todas antes da primeira ir, e a vez da primeira
+  leva as outras que esperam (`Mind.together`: fotos sozinhas não feitas, nem paradas à mão nem que derrubaram o app,
+  até `MAX_SENT_SEEN` = 9): um olhar e **um** pensar pra todas (`Mind.photosTogether`), do jeito das fotos mandadas
+  com uma fala — cada uma numerada com a data dela, o que se vê e o texto inteiro (até 1.500 caracteres,
+  `Brain.TOGETHER_TEXT`), e no fim `ELA SÓ MANDOU AS FOTOS, SEM DIZER NADA.`; cada item diz em `photos` quais são
+  dele. A vez de cada uma das outras na fila não faz nada (`carried`). Cada foto segue sendo uma captura sozinha (a
+  galeria, o diário do dia dela, a busca): guarda os resultados que a têm (`holdsPhoto`); a mais nova guarda a
+  resposta inteira (é a que a próxima conversa olha, `lastDone`). `Attached.madeFrom` só dá à foto o item que tem o
+  número dela quando o item tem números (`pics`); sem números — toda foto sozinha antes da 1.74.0 — tudo o que ela fez
+  é dela, como sempre. Deu errado (sem rede): todas esperam e vão juntas de novo.
 
 ## Motor no celular
 

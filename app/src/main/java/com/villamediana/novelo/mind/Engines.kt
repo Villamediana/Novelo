@@ -86,16 +86,20 @@ internal fun noveloNeed(server: NoveloServer): String? = when {
 }
 
 /** A chat request as the Novelo's server takes it (it puts the model). */
-internal fun chatBody(system: String, user: String, image: ByteArray? = null, audio: ByteArray? = null, json: Boolean = false, effort: String? = null): JsonObject = buildJsonObject {
+internal fun chatBody(system: String, user: String, image: ByteArray? = null, audio: ByteArray? = null, json: Boolean = false, effort: String? = null, images: List<ByteArray> = listOfNotNull(image)): JsonObject = buildJsonObject {
     putJsonArray("messages") {
         addJsonObject { put("role", "system"); put("content", system) }
         addJsonObject {
             put("role", "user")
-            if (image == null && audio == null) put("content", user) else putJsonArray("content") {
+            if (images.isEmpty() && audio == null) put("content", user) else putJsonArray("content") {
                 if (user.isNotEmpty()) addJsonObject { put("type", "text"); put("text", user) }
-                if (image != null) addJsonObject {
-                    put("type", "image_url")
-                    putJsonObject("image_url") { put("url", "data:image/jpeg;base64," + Base64.encodeToString(image, Base64.NO_WRAP)); put("detail", "low") }
+                // Several photos: each comes after its number, so each answer is the right photo's.
+                images.forEachIndexed { i, img ->
+                    if (images.size > 1) addJsonObject { put("type", "text"); put("text", "${i + 1}:") }
+                    addJsonObject {
+                        put("type", "image_url")
+                        putJsonObject("image_url") { put("url", "data:image/jpeg;base64," + Base64.encodeToString(img, Base64.NO_WRAP)); put("detail", "low") }
+                    }
                 }
                 if (audio != null) addJsonObject {
                     put("type", "input_audio")

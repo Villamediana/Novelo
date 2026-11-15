@@ -15,6 +15,12 @@ interface About {
     suspend fun photo(image: ByteArray): String?
 
     /**
+     * What each of [images] shows, in their order (null where it can't say): each its own — they
+     * may be of different things. One by one here; one look at all of them where that is cheaper.
+     */
+    suspend fun photos(images: List<ByteArray>): List<String?> = images.map { runCatching { photo(it) }.getOrNull() }
+
+    /**
      * What [file] is, from its name, its start and what she [said] with it; [look]: its first page as
      * a picture, when it had no text to read. Null when it can't say.
      */
@@ -43,18 +49,38 @@ class Seeing(
         else -> if (image.isEmpty()) null else online(OmniAbout.PHOTO, t(com.villamediana.novelo.R.string.see_photo_ask), image)?.let { OmniAbout.clean(it, 400) }
     }
 
+    /**
+     * Several photos: one request with all of them, numbered, and one description back for each
+     * (the instructions and the trip are paid once, and it is one wait instead of one per photo).
+     * The ones the answer leaves out — or all, when that request fails — are looked at one by one.
+     */
+    override suspend fun photos(images: List<ByteArray>): List<String?> {
+        val looks = images.filter { it.isNotEmpty() }
+        if (looks.size < 2 || settings.current().see == com.villamediana.novelo.settings.Source.LOCAL) return super.photos(images)
+        val ask = OmniAbout.PHOTOS.replace("{n}", looks.size.toString())
+        val said = online(ask, t(com.villamediana.novelo.R.string.see_photos_ask), looks, json = true)?.let { OmniAbout.numbered(it, looks.size) }.orEmpty()
+        var at = 0
+        return images.map { image ->
+            if (image.isEmpty()) return@map null
+            val n = at++
+            said.getOrNull(n)?.let { OmniAbout.clean(it, 400) } ?: runCatching { photo(image) }.getOrNull()
+        }
+    }
+
     override suspend fun file(file: FileSeen, said: String?, look: ByteArray?): String? = when (settings.current().see) {
         com.villamediana.novelo.settings.Source.LOCAL -> phone.file(file, said, look)
         else -> online(OmniAbout.FILE, OmniAbout.ask(file, said), look)?.lineSequence()?.firstOrNull()?.let { OmniAbout.clean(it, 180) }
     }
 
     /** By the Novelo's server or by her API, whichever sees. */
-    private suspend fun online(ask: String, user: String, image: ByteArray?): String? {
-        if (settings.current().see == com.villamediana.novelo.settings.Source.API) return byApi(ask, user, image)
+    private suspend fun online(ask: String, user: String, image: ByteArray?): String? = online(ask, user, listOfNotNull(image))
+
+    private suspend fun online(ask: String, user: String, images: List<ByteArray>, json: Boolean = false): String? {
+        if (settings.current().see == com.villamediana.novelo.settings.Source.API) return byApi(ask, user, images, json)
         if (noveloNeed(server) != null) return null
         val system = ask.replace("{lang}", Lang.current.label)
         return try {
-            server.ask("see", chatBody(system, user, image = image)).text
+            server.ask("see", chatBody(system, user, images = images, json = json)).text
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Throwable) {
@@ -62,13 +88,13 @@ class Seeing(
         }
     }
 
-    private suspend fun byApi(ask: String, user: String, image: ByteArray?): String? {
+    private suspend fun byApi(ask: String, user: String, images: List<ByteArray>, json: Boolean): String? {
         val a = settings.current().api(com.villamediana.novelo.settings.Job.SEE)
         val key = settings.apiKey(com.villamediana.novelo.settings.Job.SEE)
         if (!a.ready || a.model.isBlank() || key.isNullOrBlank()) return null
         val system = ask.replace("{lang}", Lang.current.label)
         return try {
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { api.chat(a.endpoint(key), a.model, system, user, image = image, jsonOut = false) }
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { api.chat(a.endpoint(key), a.model, system, user, images = images, jsonOut = json) }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Throwable) {
@@ -108,6 +134,32 @@ class OmniAbout(private val engine: LocalEngine, private val model: LocalModel) 
             "Describe this photo in one or two sentences, in {lang}, with the words she would use to look for it later: " +
                 "the place, the people, animals and things, the colours, the moment, and any writing you can read. " +
                 "Only what can be seen, nothing made up. Plain text."
+
+        /** Several photos in one look ({n} of them, numbered in the order they come): one description each. */
+        val PHOTOS: String =
+            "You get {n} photos, numbered in the order they come (1, 2, …). Describe each one on its own — they may be of " +
+                "unrelated things — in one or two sentences, in {lang}, with the words she would use to look for it later: " +
+                "the place, the people, animals and things, the colours, the moment, and any writing you can read. " +
+                "Only what can be seen, nothing made up. Answer only with a JSON object from each photo's number to its " +
+                "description: {\"1\": \"…\", \"2\": \"…\"}."
+
+        /**
+         * The descriptions of [n] photos from the answer to [PHOTOS], in order (null where it gave
+         * none): a JSON object by number ({"1": …}), or a list in order.
+         */
+        fun numbered(answer: String, n: Int): List<String?> {
+            val start = answer.indexOfFirst { it == '{' || it == '[' }
+            val end = answer.lastIndexOf(if (start >= 0 && answer[start] == '[') ']' else '}')
+            if (start < 0 || end <= start) return emptyList()
+            val root = runCatching { kotlinx.serialization.json.Json.parseToJsonElement(answer.substring(start, end + 1)) }.getOrNull() ?: return emptyList()
+            fun text(e: kotlinx.serialization.json.JsonElement?): String? =
+                (e as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content?.trim()?.takeIf { it.isNotEmpty() }
+            return when (root) {
+                is kotlinx.serialization.json.JsonObject -> (1..n).map { i -> text(root[i.toString()] ?: root["foto $i"] ?: root["photo $i"]) }
+                is kotlinx.serialization.json.JsonArray -> (0 until n).map { i -> text(root.getOrNull(i)) }
+                else -> emptyList()
+            }
+        }
 
         val FILE: String = """
 Diga numa frase curta o que é este arquivo que ela guardou: que tipo de documento é e de quem ou de quê (por exemplo "currículo do Miguel, 2026", "contrato de aluguel do apartamento", "planilha de gastos de novembro"), com as palavras que ela usaria pra procurá-lo. Use o nome, o começo dele e o que ela disse; não invente nada. Escreva em {lang}. Só a frase.

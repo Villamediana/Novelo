@@ -154,6 +154,9 @@ class Mind(
 
     private val queue = Channel<Long>(Channel.UNLIMITED)
     private val queued = HashSet<Long>()
+
+    /** Photos that went through in another one's run ([together]): their own turn in line has nothing left to do. */
+    private val carried = HashSet<Long>()
     @Volatile private var current: Long? = null
     private val ids = Json
 
@@ -414,19 +417,18 @@ class Mind(
     }
 
     /**
-     * Photos ([file] to when it was taken): the camera's one, or many from the gallery — each goes
-     * the way of a photo taken here, one after the other, in the order given.
+     * Photos ([file] to when it was taken): the camera's one, or many from the gallery — each kept
+     * as a photo taken here, in the order given. All are saved before the first goes, so the ones
+     * picked together go through together ([together]): one look and one think for all of them.
      */
     fun photos(files: List<Pair<File, Long>>) {
         if (files.isEmpty()) return
         begin()
         scope.launch {
             try {
-                files.forEachIndexed { i, (file, at) ->
-                    val id = db.captures().insert(Capture(createdAt = at, source = "photo", imagePath = file.path, state = Capture.RECORDED))
-                    if (i == 0) show(MindState.Working(id, Stage.READING, "", photo = true))
-                    enqueue(id)
-                }
+                val made = files.map { (file, at) -> db.captures().insert(Capture(createdAt = at, source = "photo", imagePath = file.path, state = Capture.RECORDED)) }
+                show(MindState.Working(made.first(), Stage.READING, "", photo = true))
+                made.forEach(::enqueue)
             } finally {
                 end()
             }
@@ -557,16 +559,23 @@ class Mind(
         // A job stopped by hand may still be finishing something: from then on it says nothing.
         val me = currentCoroutineContext().job
         fun say(st: MindState) { if (me.isActive) show(st) }
+        if (synchronized(queued) { carried.remove(id) }) return
         var c = db.captures().get(id) ?: return
         if (c.state == Capture.DONE) return
         val photo = c.source == "photo"
         val typed = c.source == Capture.TEXT
         // A file sent alone: nothing to hear or read — its name is what is "said", the model sees the rest.
         val file = c.source == Capture.FILE
+        // Photos sent alone that wait together (picked together in the gallery) go as one.
+        val group = if (photo && c.partOf == null) together(c) else listOf(c)
         // A run that starts counts until it ends by itself (an answer, a problem on the screen, a
         // stop); one that never ends is an app that closed or fell in the middle.
         c = c.copy(tries = c.tries + 1).also { db.captures().update(it) }
         try {
+            if (group.size > 1) {
+                photosTogether(c, group, ::say) { c = it }
+                return
+            }
             var said = c.transcript
             if (said == null && file) {
                 said = c.fileName.orEmpty().ifBlank { "arquivo" }
@@ -603,20 +612,13 @@ class Mind(
                 say(MindState.Problem(null, null, t(R.string.heard_nothing)))
                 return
             }
-            // Photos sent with it: what is written in each, read once, and what each one shows, said by
-            // Omni on the phone (each its own: they may be of different things) — kept for the search
-            // and given to the model that thinks, whichever. The photo never goes to it.
+            // Photos sent with it: what is written in each, read once on the phone, and what each one
+            // shows, said by who sees in one look at all of them (each its own: they may be of
+            // different things) — kept for the search and given to the model that thinks, whichever.
+            // The photo never goes to it.
             val attached = if (photo || file) emptyList() else db.captures().attachedTo(id)
-            val sent = attached.mapIndexed { i, p0 ->
-                var p = p0
-                if (p.transcript == null || (p.description == null && i < MAX_SENT_SEEN)) {
-                    say(MindState.Working(id, Stage.SEEING, said, step = i + 1, of = attached.size.coerceAtMost(MAX_SENT_SEEN).coerceAtLeast(i + 1)))
-                }
-                if (p.transcript == null) p = p.copy(transcript = runCatching { photos.text(File(p.imagePath!!)) }.getOrDefault("")).also { db.captures().update(it) }
-                if (p.description == null && i < MAX_SENT_SEEN) {
-                    look(File(p.imagePath!!))?.let { d -> p = p.copy(description = d).also { db.captures().update(it) } }
-                }
-                p
+            val sent = seenAll(read(attached) { i, n -> say(MindState.Working(id, Stage.READING, said, step = i, of = n)) }) { n ->
+                say(MindState.Working(id, Stage.SEEING, said, of = n))
             }
             // A photo alone: the same, once.
             if (photo && c.description == null) say(MindState.Working(id, Stage.SEEING, said, photo = true))
@@ -700,6 +702,102 @@ class Mind(
         }
     }
 
+    /**
+     * The other photos sent alone that wait to go (picked together in the gallery, or let go
+     * together), up to [MAX_SENT_SEEN] with [c]: they go through in its run. Those still in line
+     * are skipped when their turn comes. A photo stopped by hand, or that made the app fall
+     * several times, waits for a hand and doesn't go along.
+     */
+    private suspend fun together(c: Capture): List<Capture> {
+        val others = db.captures().unfinished()
+            .filter { it.id != c.id && it.source == "photo" && it.partOf == null && it.imagePath != null && it.state != Capture.STOPPED && it.tries < MAX_TRIES }
+            .sortedBy { it.id }
+            .take(MAX_SENT_SEEN - 1)
+        if (others.isEmpty()) return listOf(c)
+        synchronized(queued) { others.forEach { if (it.id in queued) carried += it.id } }
+        return (listOf(c) + others).sortedBy { it.id }
+    }
+
+    /** What is written in each of [list], read on the phone once ([reading]: which of how many, before each). */
+    private suspend fun read(list: List<Capture>, reading: (Int, Int) -> Unit): List<Capture> = list.mapIndexed { i, p ->
+        if (p.transcript != null) return@mapIndexed p
+        reading(i + 1, list.size)
+        p.copy(transcript = runCatching { photos.text(File(p.imagePath!!)) }.getOrDefault("")).also { db.captures().update(it) }
+    }
+
+    /**
+     * What each of the first [MAX_SENT_SEEN] of [list] shows, for the ones not seen yet: one look at
+     * all of them ([looking]: how many, before it), kept with each (a try again doesn't ask again).
+     */
+    private suspend fun seenAll(list: List<Capture>, looking: (Int) -> Unit): List<Capture> {
+        val blind = list.take(MAX_SENT_SEEN).filter { it.description == null }
+        if (blind.isEmpty()) return list
+        looking(blind.size)
+        val side = thinking.imageSide()
+        val images = blind.map { p -> runCatching { photos.jpeg(File(p.imagePath!!), side) }.getOrNull() }
+        val ready = blind.indices.filter { images[it] != null }
+        val said = runCatching { about.photos(ready.map { images[it]!! }) }.getOrNull().orEmpty()
+        val seen = ready.withIndex().mapNotNull { (k, i) -> said.getOrNull(k)?.trim()?.takeIf { it.isNotEmpty() }?.let { blind[i].id to it } }.toMap()
+        return list.map { p -> seen[p.id]?.let { d -> p.copy(description = d).also { db.captures().update(it) } } ?: p }
+    }
+
+    /**
+     * Photos sent alone that went together ([group], [first] the one whose turn it is): what is
+     * written in each is read on the phone, one look says what each shows, and one think finds each
+     * one's place — the way of the photos sent with something said, with nothing said. Each stays a
+     * photo of its own (the gallery, its day's diary, the search); an item made is the photos' whose
+     * numbers the model gave it. [keep]: [first] as it is now (what the run's failure starts from).
+     */
+    private suspend fun photosTogether(first: Capture, group: List<Capture>, say: (MindState) -> Unit, keep: (Capture) -> Unit) {
+        val id = first.id
+        fun mine(p: Capture) { if (p.id == id) keep(p) }
+        var pics = group.map { if (it.id == id) first.copy(state = Capture.TRANSCRIBING, error = null).also { f -> db.captures().update(f); keep(f) } else it }
+        pics = read(pics) { i, n -> say(MindState.Working(id, Stage.READING, "", photo = true, step = i, of = n)) }.onEach(::mine)
+        pics = seenAll(pics) { n -> say(MindState.Working(id, Stage.SEEING, "", photo = true, of = n)) }.onEach(::mine)
+        // Nothing to read, nothing seen, and a model that can't look: nothing to keep of that one.
+        if (!thinking.seesImages()) {
+            val empty = pics.filter { it.transcript.isNullOrBlank() && it.description == null }
+            empty.forEach { p -> p.imagePath?.let { File(it).delete() }; db.captures().delete(p.id) }
+            pics = pics.filter { p -> empty.none { it.id == p.id } }
+        }
+        if (pics.isEmpty()) {
+            say(MindState.Problem(null, null, t(R.string.read_nothing)))
+            return
+        }
+        pics.firstOrNull { it.id == id }?.let { mine(it.copy(state = Capture.THINKING).also { f -> db.captures().update(f) }) }
+        say(MindState.Working(id, Stage.THINKING, "", photo = true))
+        // The run's answer is the newest one's: the one the next turn of the conversation looks back at.
+        val owner = pics.maxBy { it.id }
+        val plan = think(owner, "", photo = true, sent = pics, together = true)
+        val result = keeper.apply(plan, owner.id, sentPhotos = pics.map { it.id })
+        // Each photo is its day's too: it shows in that day's diary (begun now when there is none).
+        pics.map { it.createdAt }.distinctBy { DayDiary.bounds(it, zone()).first }.forEach { diaryFor(it) }
+        runCatching { reminders.sync(result.touched) }
+        if (result.medsChanged) runCatching { reminders.syncMeds() }
+        val mineIds = pics.map { it.id }.toSet()
+        val shown = plan.show.distinct().filter { db.entries().get(it) != null }
+        val shownPhotos = plan.showPhotos.distinct().filter { p -> p !in mineIds && db.captures().get(p)?.let { it.source == "photo" && it.imagePath != null } == true }
+        val shownMeds = plan.showMeds.distinct().filter { it !in result.meds && db.meds().get(it) != null }
+        for (p in pics) {
+            val now = db.captures().get(p.id) ?: continue
+            val whole = p.id == owner.id
+            // Each photo keeps what it went to (what it made, for the gallery and the item); the newest, the whole answer.
+            val outcomes = if (whole) result.outcomes else result.outcomes.filter { it.holdsPhoto(p.id) }
+            mine(
+                now.copy(
+                    state = Capture.DONE,
+                    tries = 0,
+                    error = null,
+                    reply = if (whole) plan.reply else now.reply,
+                    outcomes = ids.encodeToString(ListSerializer(Outcome.serializer()), outcomes),
+                    shown = if (whole) ids.encodeToString(ListSerializer(Long.serializer()), shown) else now.shown,
+                    shownPhotos = if (whole) ids.encodeToString(ListSerializer(Long.serializer()), shownPhotos) else now.shownPhotos,
+                ).also { db.captures().update(it) },
+            )
+        }
+        say(MindState.Answer(id, "", plan.reply, result.outcomes, shown, photo = true, photos = shownPhotos, meds = result.meds, shownMeds = shownMeds))
+    }
+
     /** What a photo shows, said by Omni on the phone; null when it can't say. */
     private suspend fun look(f: File): String? {
         val image = runCatching { photos.jpeg(f, thinking.imageSide()) }.getOrNull() ?: return null
@@ -736,6 +834,8 @@ class Mind(
         fileAlone: Boolean = false,
         /** What the photo shows, as the phone saw it (the model gets these words, never the photo). */
         shows: String? = null,
+        /** Photos sent alone, together ([sent]): nothing said, each one goes where it belongs. */
+        together: Boolean = false,
     ): Plan {
         val now = clock()
         val z = zone()
@@ -759,16 +859,16 @@ class Mind(
         // The photos kept, found by what they show — only for what is said or written (a photo
         // being described needs no others), a few at first; more when the model asks to look.
         var photoIndex: PhotoRecall? = null
-        suspend fun pictures(): PhotoRecall = photoIndex ?: PhotoRecall(db.captures().allPhotos().filter { it.id != c.id && it.partOf != c.id }.mapNotNull(Photo::of)).also { photoIndex = it }
+        suspend fun pictures(): PhotoRecall = photoIndex ?: PhotoRecall(db.captures().allPhotos().filter { p -> p.id != c.id && p.partOf != c.id && sent.none { it.id == p.id } }.mapNotNull(Photo::of)).also { photoIndex = it }
         val photoHits = if (photo || fileAlone) emptyList() else pictures().search(said, FIRST_PHOTO_HITS)
 
-        val taken = if (photo) c.createdAt else null
+        val taken = if (photo && !together) c.createdAt else null
         val before = before(c, live)
         val categories = com.villamediana.novelo.data.Categories.inUse(all)
         // Her medicines, with today's times taken: what "já dei o remédio do Cooper" is about.
         val meds = db.meds().all()
         val takenToday = if (meds.isEmpty()) emptyList() else db.meds().allTaken()
-        val first = Brain.context(heard, now, z, open, hits, focus, recent, photo = photo, typed = typed, diary = diary, photos = photoHits, takenAt = taken, before = before, sent = sentPhotos, files = files, fileAlone = fileAlone, seen = shows, categories = categories, meds = meds, taken = takenToday)
+        val first = Brain.context(heard, now, z, open, hits, focus, recent, photo = photo, typed = typed, diary = diary, photos = photoHits, takenAt = taken, before = before, sent = sentPhotos, files = files, fileAlone = fileAlone, seen = shows, categories = categories, meds = meds, taken = takenToday, together = together)
         var plan = Brain.parse(thinking.answer(Brain.SYSTEM, first)) ?: throw IllegalStateException(t(R.string.bad_format))
         var found = emptyList<Entry>()
         var foundPhotos = emptyList<Photo>()
@@ -784,7 +884,7 @@ class Mind(
             foundPhotos = (foundPhotos + (if (plan.search.isEmpty()) emptyList() else pictures().search(plan.search.joinToString(" "), MAX_PHOTO_HITS)) +
                 (if (days == null) emptyList() else pictures().during(days, MAX_PHOTO_HITS))).distinctBy { it.id }
             looked += Brain.looked(plan)
-            val next = Brain.context(heard, now, z, open, found, focus, recent, looked = looked.joinToString(" · "), photo = photo, typed = typed, diary = diary, photos = foundPhotos, takenAt = taken, before = before, sent = sentPhotos, files = files, fileAlone = fileAlone, seen = shows, categories = categories, meds = meds, taken = takenToday)
+            val next = Brain.context(heard, now, z, open, found, focus, recent, looked = looked.joinToString(" · "), photo = photo, typed = typed, diary = diary, photos = foundPhotos, takenAt = taken, before = before, sent = sentPhotos, files = files, fileAlone = fileAlone, seen = shows, categories = categories, meds = meds, taken = takenToday, together = together)
             plan = Brain.parse(thinking.answer(Brain.SYSTEM, next))
                 ?: plan.copy(search = emptyList(), period = null, reply = plan.reply.ifBlank { NOTHING_FOUND })
         }
@@ -833,7 +933,7 @@ class Mind(
         const val FIRST_PHOTO_HITS = 4
         const val MAX_PHOTO_HITS = 8
 
-        /** Photos sent with what she said that the model sees (in one image) at most. */
+        /** Photos sent together (with what she said, or alone) seen in one look and given to the model at most. */
         const val MAX_SENT_SEEN = 9
 
         private val STAGED = Regex("""s-(\d+)-(\d+)\.\w+""")

@@ -814,6 +814,9 @@ class ScreensTest {
         assertEquals("Transcrevendo…", w(com.villamediana.novelo.mind.Stage.HEARING, 1, 1))
         assertEquals("Olhando as fotos… 1 de 3", w(com.villamediana.novelo.mind.Stage.SEEING, 1, 3))
         assertEquals("Olhando a foto…", w(com.villamediana.novelo.mind.Stage.SEEING))
+        assertEquals("Olhando as 3 fotos…", w(com.villamediana.novelo.mind.Stage.SEEING, 0, 3))
+        assertEquals("Lendo as fotos… 2 de 3", w(com.villamediana.novelo.mind.Stage.READING, 2, 3))
+        assertEquals("Lendo a foto…", w(com.villamediana.novelo.mind.Stage.READING))
         assertEquals("Vendo o que é o arquivo…", w(com.villamediana.novelo.mind.Stage.FILES, 1, 1))
         assertEquals("Organizando…", w(com.villamediana.novelo.mind.Stage.THINKING))
     }

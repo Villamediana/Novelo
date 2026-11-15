@@ -575,8 +575,9 @@ internal fun stageText(s: MindState.Working): String {
     val counted = s.of > 1 && s.step in 1..s.of
     return when (s.stage) {
         Stage.HEARING -> if (counted) t(R.string.stage_hearing_part, s.step, s.of) else t(R.string.stage_hearing)
-        Stage.READING -> t(R.string.stage_reading)
-        Stage.SEEING -> if (counted) t(R.string.stage_seeing_many, s.step, s.of) else t(R.string.stage_seeing)
+        Stage.READING -> if (counted) t(R.string.stage_reading_many, s.step, s.of) else t(R.string.stage_reading)
+        // Several photos in one look: how many, no "which" (they are seen all at once).
+        Stage.SEEING -> if (counted) t(R.string.stage_seeing_many, s.step, s.of) else if (s.of > 1) t(R.string.stage_seeing_all, s.of) else t(R.string.stage_seeing)
         Stage.FILES -> if (counted) t(R.string.stage_files_many, s.step, s.of) else t(R.string.stage_files)
         Stage.THINKING -> t(R.string.stage_thinking)
         Stage.LOOKING -> t(R.string.stage_looking)
