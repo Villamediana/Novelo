@@ -48,21 +48,31 @@ import com.villamediana.novelo.ui.theme.NoveloText
  * What still has to be there for Novelo to hear, see and think (she set it up, or it is still to come).
  * [locks]: without it nothing can be said (who sees only lacks for photos and documents).
  */
-enum class Missing(val locks: Boolean = true) { EARS, HEAR_API, THINK_API, SEE(locks = false) }
+enum class Missing(val locks: Boolean = true) { NOVELO, EARS, HEAR_API, THINK_API, SEE(locks = false) }
 
 /**
- * What is missing for what she chose: the ears on the phone when the Novelo hears (a build that
- * can't have them, only for tests, doesn't count), her API that hears, her API that thinks.
+ * What is missing for what she chose: the Novelo's own intelligence when it can't be used any more
+ * ([novelo] false: the server said it is over for this phone, or this build has none), the model on
+ * the phone when it hears (a build that can't have it, only for tests, doesn't count), her API that
+ * hears, her API that thinks.
  */
-fun missing(s: NoveloSettings, ears: LocalModel.State, engine: Boolean): List<Missing> = buildList {
+fun missing(s: NoveloSettings, ears: LocalModel.State, engine: Boolean, novelo: Boolean = true): List<Missing> = buildList {
+    if (!novelo && (s.hear == Source.NOVELO || s.think == Source.NOVELO)) add(Missing.NOVELO)
     when (s.hear) {
-        Source.NOVELO -> if (engine && ears != LocalModel.State.Ready) add(Missing.EARS)
+        Source.NOVELO -> Unit
+        Source.LOCAL -> if (engine && ears != LocalModel.State.Ready) add(Missing.EARS)
         Source.API -> s.api(Job.HEAR).let { if (!it.ready || it.model.isBlank()) add(Missing.HEAR_API) }
     }
-    if (s.think == Source.API) s.api(Job.THINK).let { if (!it.ready || it.model.isBlank()) add(Missing.THINK_API) }
-    // Who sees: the model on the phone (when it isn't already asked for as the ears), or her API.
+    when (s.think) {
+        Source.NOVELO -> Unit
+        // Nothing on the phone thinks: it is her API, to be set up.
+        Source.LOCAL -> add(Missing.THINK_API)
+        Source.API -> s.api(Job.THINK).let { if (!it.ready || it.model.isBlank()) add(Missing.THINK_API) }
+    }
+    // Who sees: the Novelo, the model on the phone (when it isn't already asked for as the ears), or her API.
     when (s.see) {
-        Source.NOVELO -> if (engine && ears != LocalModel.State.Ready && Missing.EARS !in this) add(Missing.SEE)
+        Source.NOVELO -> if (!novelo && Missing.NOVELO !in this) add(Missing.SEE)
+        Source.LOCAL -> if (engine && ears != LocalModel.State.Ready && Missing.EARS !in this) add(Missing.SEE)
         Source.API -> s.api(Job.SEE).let { if (!it.ready || it.model.isBlank()) add(Missing.SEE) }
     }
 }
@@ -125,9 +135,9 @@ internal fun ReadyCard(missing: List<Missing>, nudge: Int, onSettings: () -> Uni
                         modifier = Modifier.clip(CircleShape).clickable(onClick = onSettings).padding(horizontal = 10.dp, vertical = 8.dp),
                     )
                 }
-                Missing.HEAR_API, Missing.THINK_API, Missing.SEE -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                Missing.NOVELO, Missing.HEAR_API, Missing.THINK_API, Missing.SEE -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
                     Text(
-                        t(when (m) { Missing.HEAR_API -> R.string.ready_hear_api; Missing.SEE -> R.string.ready_see; else -> R.string.ready_think_api }),
+                        t(when (m) { Missing.NOVELO -> R.string.ready_novelo; Missing.HEAR_API -> R.string.ready_hear_api; Missing.SEE -> R.string.ready_see; else -> R.string.ready_think_api }),
                         style = MaterialTheme.typography.bodyMedium,
                         color = NoveloColors.TextMuted,
                         modifier = Modifier.weight(1f, fill = false),

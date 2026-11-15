@@ -19,6 +19,8 @@ class NoveloApplication : Application() {
         graph = AppGraph(this)
         Notifications.createChannels(this)
         graph.scope.launch { runCatching { graph.reminders.syncAll() } }
+        // What this phone has, as the Novelo's server says now (the trial, Novelo+).
+        graph.scope.launch { if (graph.server.available) runCatching { graph.server.me() } }
         // The medicines in memory from the start (Hoje and Remédios are drawn with them there).
         graph.medsNow; graph.takenNow
         // One diary a day (days left with two from before become one).

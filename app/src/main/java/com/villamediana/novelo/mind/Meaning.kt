@@ -11,14 +11,24 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 
 /**
- * The search by meaning, on the phone: Omni (the Novelo's ears, already here) turns what she
- * searched for into the words her notes may use for it — the same thing said other ways and in
- * the other languages she mixes, and what goes with it — so the word search finds it by meaning
- * too. Offline, nothing more to download, no call to anyone.
+ * The search by meaning: what she searched for becomes the words her notes may use for it — the
+ * same thing said other ways and in the other languages she mixes, and what goes with it — so the
+ * word search finds it by meaning too. With the model on the phone (Omni), it is done there:
+ * offline, no call to anyone. Without it, whoever thinks gives the words ([online]: the Novelo's
+ * own intelligence, or her API) — only what she typed in the search goes, nothing of her notes.
  */
-class Meaning(private val engine: LocalEngine, private val model: LocalModel) {
-    /** The ears are here and can run. */
-    val available: Boolean get() = LocalEngine.available && model.ready
+class Meaning(
+    private val engine: LocalEngine,
+    private val model: LocalModel,
+    /** The instructions and what she searched → the answer of whoever thinks; null when nobody can now. */
+    private val online: (suspend (system: String, user: String) -> String?)? = null,
+    private val onlineReady: suspend () -> Boolean = { false },
+) {
+    /** The model on the phone is here and can run. */
+    val onPhone: Boolean get() = LocalEngine.available && model.ready
+
+    /** Someone can give the words: the model on the phone, or whoever thinks. */
+    suspend fun available(): Boolean = onPhone || (online != null && onlineReady())
 
     /** What was already asked (folded query → words): typing back, or searching again, is instant. */
     private val kept = object : LinkedHashMap<String, List<String>>(64, 0.75f, true) {
@@ -27,17 +37,22 @@ class Meaning(private val engine: LocalEngine, private val model: LocalModel) {
 
     /** Loads Omni and runs the instructions now (she opened the search), so the first answer comes quicker. */
     suspend fun warm() {
-        if (available) runCatching { engine.warm(model.files, HEAD) }
+        if (onPhone) runCatching { engine.warm(model.files, HEAD) }
     }
 
     /**
-     * The words her notes may use for [query] (none of the query's own); empty when Omni isn't
-     * here. Stopped at once when the search changes (another query, the screen closed).
+     * The words her notes may use for [query] (none of the query's own); empty when nobody can
+     * give them. Stopped at once when the search changes (another query, the screen closed).
      */
     suspend fun words(query: String): List<String> {
         val key = Words.of(query).joinToString(" ")
-        if (key.isEmpty() || !available) return emptyList()
+        if (key.isEmpty()) return emptyList()
         synchronized(kept) { kept[key] }?.let { return it }
+        if (!onPhone) {
+            // No model on the phone: whoever thinks is asked (once per search: what came is kept).
+            val answer = online?.invoke(ASK, query.trim()) ?: return emptyList()
+            return parse(answer, query).also { words -> synchronized(kept) { kept[key] = words } }
+        }
         val tag = Any()
         val out = coroutineScope {
             val work = async(Dispatchers.Default) {

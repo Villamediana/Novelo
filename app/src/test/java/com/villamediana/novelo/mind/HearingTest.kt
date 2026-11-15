@@ -51,13 +51,13 @@ class HearingTest {
             }
         }
         server.start()
-        hearing = Hearing(st, graph.api, graph.engine, graph.localModel, tmp.newFolder("pieces"))
+        hearing = Hearing(st, graph.api, graph.engine, graph.localModel, tmp.newFolder("pieces"), graph.server)
     }
 
     @After fun stop() {
         server.close()
         runBlocking {
-            st.setHear(Source.NOVELO)
+            st.setHear(Source.LOCAL)
             st.setApiProvider(Job.HEAR, "")
             st.setApiBase(Job.HEAR, "")
             st.setApiKey(Job.HEAR, "")
@@ -84,7 +84,7 @@ class HearingTest {
 
     @Test
     fun theNovelosEarsNeedToBeOnThePhone() = runBlocking {
-        st.setHear(Source.NOVELO)
+        st.setHear(Source.LOCAL)
         // This build has no engine: it says so, and nothing goes anywhere.
         try {
             hearing.transcribe(wav(2)) {}
@@ -161,18 +161,18 @@ class HearingTest {
 
     @Test
     fun theFirstStepsWaitForTheEarsOnlyWhenTheyHear() {
-        assertTrue(earsNeeded(Source.NOVELO, true, LocalModel.State.Missing))
-        assertTrue(earsNeeded(Source.NOVELO, true, LocalModel.State.Downloading(0.4f, 1, 2)))
-        assertTrue(!earsNeeded(Source.NOVELO, true, LocalModel.State.Ready))
+        assertTrue(earsNeeded(Source.LOCAL, true, LocalModel.State.Missing))
+        assertTrue(earsNeeded(Source.LOCAL, true, LocalModel.State.Downloading(0.4f, 1, 2)))
+        assertTrue(!earsNeeded(Source.LOCAL, true, LocalModel.State.Ready))
         // Her API hears: nothing to download, nothing to wait for.
         assertTrue(!earsNeeded(Source.API, true, LocalModel.State.Missing))
         // A build without the engine can't have them.
-        assertTrue(!earsNeeded(Source.NOVELO, false, LocalModel.State.Missing))
+        assertTrue(!earsNeeded(Source.LOCAL, false, LocalModel.State.Missing))
     }
 
     @Test
     fun whatIsMissingIsWhatSheChose() = runBlocking {
-        st.setHear(Source.NOVELO); st.setThink(Source.NOVELO)
+        st.setHear(Source.LOCAL); st.setThink(Source.NOVELO)
         assertEquals(listOf(Missing.EARS), missing(st.current(), LocalModel.State.Missing, true))
         assertEquals(listOf(Missing.EARS), missing(st.current(), LocalModel.State.Downloading(0.5f, 1, 2), true))
         assertTrue(missing(st.current(), LocalModel.State.Ready, true).isEmpty())
@@ -191,7 +191,7 @@ class HearingTest {
     @Test
     fun theSummarySaysWhoHearsAndWhoThinks() = runBlocking {
         val ready = LocalModel.State.Ready
-        st.setHear(Source.NOVELO)
+        st.setHear(Source.LOCAL)
         // This build has no engine: the ears are what is missing.
         assertTrue(intelligenceSummary(st.current(), ready, novelo = true).second)
         herApi()

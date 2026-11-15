@@ -683,6 +683,15 @@ class Mind(
             // the progress never stays up with nothing going on behind it.
             val msg = when (e) {
                 is com.villamediana.novelo.ai.ApiException -> t(R.string.api_answered, e.code, e.message.orEmpty())
+                // The Novelo's server answered, and it wasn't an answer: its models all taken (it goes
+                // again by itself in a moment), today's limit, or something else of its own.
+                is com.villamediana.novelo.server.ServerException -> when (e.code) {
+                    "busy" -> t(R.string.novelo_busy).also { offline() }
+                    "quota", "rate_limited" -> t(R.string.novelo_quota)
+                    // The server just said the Novelo's intelligence is over for this phone.
+                    "plan" -> t(R.string.need_novelo_ended)
+                    else -> t(R.string.novelo_later)
+                }
                 is IOException -> t(R.string.offline_kept).also { offline() }
                 else -> e.message ?: e.javaClass.simpleName
             }

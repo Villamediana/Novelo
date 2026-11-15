@@ -502,4 +502,13 @@
     <string name="ready_see">Who sees your photos and documents is missing.</string>
     <string name="see_photo_ask">Describe this photo.</string>
     <string name="section_through_day">Throughout the day</string>
+    <string name="ai_local">Phone</string>
+    <string name="ai_hears_novelo">Novelo hears</string>
+    <string name="ai_sees_novelo">Novelo sees</string>
+    <string name="need_novelo_ended">Novelo\'s intelligence isn\'t available on this phone — choose another in Settings</string>
+    <string name="ready_novelo">Novelo\'s intelligence isn\'t available on this phone.</string>
+    <string name="novelo_busy">Novelo is very busy right now. I kept it; it goes by itself in a moment.</string>
+    <string name="novelo_quota">Today\'s limit was reached. I kept it; it goes on tomorrow.</string>
+    <string name="novelo_later">Novelo\'s intelligence didn\'t answer now. I kept it; try again in a moment.</string>
+    <string name="device_code">device %1$s</string>
 </resources>

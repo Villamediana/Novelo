@@ -502,4 +502,13 @@
     <string name="ready_see">Falta quien ve tus fotos y documentos.</string>
     <string name="see_photo_ask">Describe esta foto.</string>
     <string name="section_through_day">A lo largo del día</string>
+    <string name="ai_local">Celular</string>
+    <string name="ai_hears_novelo">Novelo oye</string>
+    <string name="ai_sees_novelo">Novelo ve</string>
+    <string name="need_novelo_ended">la inteligencia del Novelo no está disponible en este celular — elige otra en Ajustes</string>
+    <string name="ready_novelo">La inteligencia del Novelo no está disponible en este celular.</string>
+    <string name="novelo_busy">El Novelo está con mucha gente ahora. Lo guardé; se va solo en un momento.</string>
+    <string name="novelo_quota">Se alcanzó el límite de hoy. Lo guardé; mañana sigue.</string>
+    <string name="novelo_later">La inteligencia del Novelo no respondió ahora. Lo guardé; intenta de nuevo en un momento.</string>
+    <string name="device_code">dispositivo %1$s</string>
 </resources>

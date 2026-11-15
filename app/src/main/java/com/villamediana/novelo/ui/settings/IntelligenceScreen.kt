@@ -116,6 +116,7 @@ fun IntelligenceSection() {
             {
                 SourceLine(
                     title = t(R.string.ai_who_hears),
+                    choices = HEARS,
                     source = s.hear,
                     model = s.hearModel,
                     tag = "hear",
@@ -129,6 +130,7 @@ fun IntelligenceSection() {
             {
                 SourceLine(
                     title = t(R.string.ai_who_sees),
+                    choices = HEARS,
                     source = s.see,
                     model = s.seeModel,
                     tag = "see",
@@ -142,6 +144,7 @@ fun IntelligenceSection() {
             {
                 SourceLine(
                     title = t(R.string.ai_who_thinks),
+                    choices = THINKS,
                     source = s.think,
                     model = s.thinkModel,
                     tag = "think",
@@ -154,8 +157,8 @@ fun IntelligenceSection() {
             },
         )
 
-        // The model on the phone (it hears and sees): to download when the Novelo hears or sees; and, once there, to take it off.
-        if (s.hear == Source.NOVELO || s.see == Source.NOVELO || local !is LocalModel.State.Missing) {
+        // The model on the phone (it hears and sees): to download when it hears or sees; and, once there, to take it off.
+        if (s.hear == Source.LOCAL || s.see == Source.LOCAL || local !is LocalModel.State.Missing) {
             SectionLabel(t(R.string.ai_on_phone))
             Group(Modifier, { LocalModelLine(graph.localModel, local, phonePack(s), onDelete = { deleting = true }) })
         }
@@ -196,8 +199,8 @@ fun IntelligenceSection() {
         com.villamediana.novelo.ui.sheets.ConfirmDialog(
             title = t(R.string.local_delete_title),
             line = when {
-                s.hear == Source.NOVELO -> t(R.string.local_delete_line_hears, formatBytes(graph.localModel.totalBytes))
-                s.see == Source.NOVELO -> t(R.string.local_delete_line_sees, formatBytes(graph.localModel.totalBytes))
+                s.hear == Source.LOCAL -> t(R.string.local_delete_line_hears, formatBytes(graph.localModel.totalBytes))
+                s.see == Source.LOCAL -> t(R.string.local_delete_line_sees, formatBytes(graph.localModel.totalBytes))
                 else -> t(R.string.local_delete_line, formatBytes(graph.localModel.totalBytes))
             },
             yes = t(R.string.local_delete),
@@ -216,8 +219,8 @@ fun IntelligenceSection() {
 
 /** What the model on the phone is for her: its ears, its eyes, or both. */
 internal fun phonePack(s: com.villamediana.novelo.settings.NoveloSettings): String = when {
-    s.hear == Source.NOVELO && s.see == Source.NOVELO -> t(R.string.local_pack_both)
-    s.see == Source.NOVELO -> t(R.string.local_pack_see)
+    s.hear == Source.LOCAL && s.see == Source.LOCAL -> t(R.string.local_pack_both)
+    s.see == Source.LOCAL -> t(R.string.local_pack_see)
     else -> t(R.string.local_pack_hear)
 }
 
@@ -237,10 +240,15 @@ internal fun localShort(state: LocalModel.State): String = when {
     else -> t(R.string.local_needs_download)
 }
 
-/** Who does a job (hears, thinks): the Novelo or her API, on the right; under it, her API's model (it opens the list). */
+/** Who can hear and see: the Novelo, the model on the phone, her API. Who can think: the Novelo or her API (nothing on the phone thinks). */
+private val HEARS = listOf(Source.NOVELO, Source.LOCAL, Source.API)
+private val THINKS = listOf(Source.NOVELO, Source.API)
+
+/** Who does a job (hears, sees, thinks), chosen under its name; then her API's model, when it is hers (it opens the list). */
 @Composable
 private fun SourceLine(
     title: String,
+    choices: List<Source>,
     source: Source,
     model: String,
     tag: String,
@@ -268,9 +276,9 @@ private fun SourceLine(
             }
         }
         Segmented(
-            listOf(t(R.string.ai_novelo), t(R.string.ai_api)),
-            selected = if (api) 1 else 0,
-            onSelect = { i -> onSource(if (i == 1) Source.API else Source.NOVELO) },
+            choices.map { t(when (it) { Source.NOVELO -> R.string.ai_novelo; Source.LOCAL -> R.string.ai_local; Source.API -> R.string.ai_api }) },
+            selected = choices.indexOf(source).coerceAtLeast(0),
+            onSelect = { i -> onSource(choices[i]) },
         )
     }
 }

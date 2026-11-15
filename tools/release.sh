@@ -16,8 +16,9 @@ cd "$(dirname "$0")/.."
 
 REPO=Villamediana/Novelo
 PACKAGE=com.villamediana.novelo
-# SHA-256 do certificado da chave de release (~/keystores/novelo-release.jks).
-CERT_SHA256=f538e5002e8ae68cac35b25785e655d40a1e6bf54f9db606493500633d48bffc
+# SHA-256 do certificado da chave de release (~/keystores/novelo-release.jks). Chave nova desde a 1.73.0:
+# a de antes (f538e500…48bffc) se perdeu com a máquina de build.
+CERT_SHA256=428becffc007c5063d8e3ea5122a2d7e712a965c445ae70b1384024def1d4858
 
 die() { echo "release: $*" >&2; exit 1; }
 

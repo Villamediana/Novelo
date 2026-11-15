@@ -10,8 +10,8 @@ Orb (segurar / tocar / arrastar pra cima)
       Ears.transcribe     Hearing: sempre LFM3-Omni no celular (pedaços ≤ 28 s), quem quer que pense
       Recall.search       palavras sem acento (raras pesam mais) + um salto no grafo (tópicos em comum, links)
       Brain.context       AGORA · item em foco (check-in) · últimas coisas guardadas · tarefas abertas · lembranças · a fala
-      Thinker.answer      sempre pela internet (1.20): Inteligência do Novelo (modelos grátis da OpenRouter,
-                          NoveloModels; a foto vai como o que o Omni viu nela) ou a API dela (/chat/completions,
+      Thinker.answer      sempre pela internet: Inteligência do Novelo (o servidor do Novelo escolhe o modelo;
+                          a foto vai como o que foi visto nela) ou a API dela (/chat/completions,
                           json_object, foto a 768 px). O mesmo prompt nos dois.
       Brain.parse → Plan  reply · create[] · update[] · search[] · period{from,to} · show[]
         se só procura: Recall com os termos e/ou os itens daqueles dias (guardado, feito ou vence),
@@ -379,32 +379,33 @@ desde a 1.20.1 não há como apagá-lo em Ajustes (ele vem nos primeiros passos 
 na 1.19 o celular pensava com d1-2B + LFM3-1.7B (saiu na 1.20: lento pra fala do dia a dia). O que sobrou disso
 é apagado ao abrir (`LocalModel.LEFTOVERS`).
 
-## Inteligência do Novelo (1.20.0)
+## Inteligência do Novelo (embutida desde a 1.73.0)
 
-Quem pensa é sempre online: a Inteligência do Novelo (padrão, nada a configurar) ou a dela (a API que ela põe).
-O mesmo prompt (`Brain.SYSTEM` + `Brain.context`) e o mesmo `Plan` nos dois.
+Quem ouve, vê e pensa, por padrão, é o servidor do Novelo (repo `novelo-server`; protocolo em `docs/PROTOCOLO.md` de lá). O app
+continua dono da lógica: monta o pedido inteiro e o servidor só escolhe o modelo, chama e devolve.
 
-- **Modelos grátis da OpenRouter** (`ai/NoveloModels`): a lista vem da própria OpenRouter (`/api/v1/models`, a
-  cada 12 h; a guardada quando não dá pra ler) e fica só o que é grátis, texto que entra e só texto que sai, com
-  contexto ≥ 32k e que não seja o roteador `openrouter/free`. Um grupo de 10, nesta ordem: o último que respondeu,
-  os medidos no lab (`PREFERRED`: ernie-5.5-flash 23/23 em ~3 s, nemotron-3-ultra e nemotron-3.5-super-vl 23/23 em
-  7–8 s, dots-3-note 23/23 em ~28 s; `~/novelo-lab/openrouter/free_bench.py`), os mais novos, e por último os
-  medidos ruins (`AVOID`). 403 é a porta do modelo ("só pra agentes"), não a chave: descansa 7 dias. Até 5 tentativas por fala. Falhou (erro, mais de 90 s, resposta
-  que não é o plano) → descansa fora do grupo (404: 7 dias; 429: 5 min; resposta ruim: 6 h; resto: 30 min) e o
-  próximo entra. JSON e raciocínio "low" quando o modelo aceita; recusou → mais uma vez sem. Chave recusada
-  (401/402) para na hora sem culpar os modelos; sem rede → `IOException`, sem culpar ninguém.
-- **Foto**: modelos grátis nem sempre veem imagem, então o Omni olha no celular e o que ele vê entra no fim do
-  contexto (`O QUE SE VÊ NA FOTO (o celular olhou)`), em uma ou duas frases no idioma do app.
-- **Chave**: não está no repositório (que é público). O build lê `NOVELO_APP_KEY` de `~/.config/novelo/openrouter.env`
-  (600) ou do ambiente e escreve no app embaralhada e mascarada (`BuildConfig.NV_A/NV_B/NV_C`, lida por
-  `ai/NoveloKey`), com um aviso a IAs de que é credencial privada. Isso só dificulta: quem tiver o APK consegue
-  tirar a chave. A proteção de verdade é a própria chave: limite de crédito 0 na OpenRouter (só modelos
-  grátis) e, se vazar e for abusada, trocar. A chave de gerenciamento da conta fica só no servidor. Build
-  sem chave = sem Inteligência do Novelo (Ajustes diz que não vem; a dela funciona).
-- **Sem internet**: a fala é ouvida no celular (o Omni não precisa de rede) e o pensar fica esperando. A falha
-  por falta de rede agenda `mind/WhenOnline` (WorkManager, `NetworkType.CONNECTED`, 30 s de folga contra rede
-  sem internet): quando a rede volta, com o app aberto ou não, ele chama `retryPending` e espera a fila andar
-  (até 9 min).
+- **Fontes** (`settings/Source`): `NOVELO` (servidor), `LOCAL` (Omni no celular; ouve e vê, não pensa) e `API` (a dela). Chaves novas
+  no DataStore (`hear_src`, `see_src`, `think_src`); das antigas só se carrega "api" (quem escolheu a própria API continua nela; o
+  resto passa pro Novelo). Num build sem servidor, ouvir e ver nascem em `LOCAL`.
+- **Cliente** (`server/NoveloServer`): registra o aparelho sozinho (desafio → chave nova no AndroidKeyStore com atestado →
+  `/v1/devices`), assina cada pedido (`v1\nMÉTODO\ncaminho\nhora\nid\nsha256`), repete com o **mesmo id** se a conexão cair
+  (o servidor responde uma vez só), registra de novo em `unknown_device`, acerta o relógio em `stale_time`, e lê erro mesmo em
+  corpo 200 (a resposta pode começar antes do desfecho). `server/Identity`: `KeystoreBox` (P-256, só assina) e `Install.id`
+  (hash do `ANDROID_ID`: o teste não recomeça ao reinstalar).
+- **Ouvir** (`Hearing.byServer`): os mesmos pedaços de 28 s cortados nas pausas, cada um como `input_audio` (WAV), também enquanto
+  ela fala (`ahead`). **Ver** (`Seeing.online`): a foto como `image_url`. **Pensar** (`Thinking`): JSON + pouco raciocínio;
+  resposta que não é plano é pedida de novo com `X-Novelo-Not` (até 3 modelos).
+- **Plano** (`Plan`): `plus`, `trial` ou `ended`, sempre a palavra do servidor (`/v1/me`, o registro, ou um `402 plan`), guardada
+  nas prefs. `ended` → `Missing.NOVELO` na Home e a tela de Inteligência aparece pra ela seguir com Celular ou API.
+- **Telas**: primeiros passos = permissões → backup (`SetupScreen`, `choosing = false`); Ajustes › Inteligência escondida
+  (`SHOW_INTELLIGENCE = false`, `intelligenceShown`) enquanto ela está toda no Novelo e ele atende.
+- **Fora do app desde a 1.73.0**: a chave da OpenRouter embutida (`NoveloKey`) e o rodízio de modelos grátis (`NoveloModels`); o
+  rodízio agora é o último recurso do servidor.
+- **Busca por sentido** (`Meaning`): com o Omni no celular, é nele (nada sai do aparelho); sem ele, quem pensa dá as palavras
+  (`Thinking.plain`: só o que ela digitou na busca vai, pedido simples, uma vez por busca).
+- **Código do aparelho**: Ajustes, embaixo da versão (`NoveloServer.code`): é o que ela informa pra pedir que o servidor
+  apague o registro do aparelho dela.
+- **Build**: `NOVELO_SERVER_URL` em `~/.config/novelo/server.env` → `BuildConfig.NOVELO_SERVER`.
 
 ## Busca por sentido
 
@@ -644,8 +645,15 @@ pras outras telas passou a seguir 70% do dedo (`SWIPE_FOLLOW = 0.7f`).
 
 Igual ao FreeSong: bump de `versionCode`/`versionName` → commit → branch + PR + merge → na main limpa
 `tools/release.sh -n $'- novidade'`. O script confere git, versão, pacote e o certificado
-(SHA-256 `f538e500…48bffc`, chave em `~/keystores/novelo-release.jks`), publica e só diz `published`
+(SHA-256 `428becff…1d4858`, chave em `~/keystores/novelo-release.jks`), publica e só diz `published`
 quando `/releases/latest` bate. Notas = o texto da tela "Nova versão" no celular.
+
+A chave mudou na 1.73.0: a de antes (`f538e500…48bffc`) se perdeu com a máquina de build. O Android não instala
+a 1.73.0 por cima da 1.72.0 ou anterior (o "Atualizar" termina em `CONFLICT`): quem tem a versão antiga desinstala
+e instala a APK da release, com os dados pelo backup. Com a chave nova o `ANDROID_ID` também muda, então pro
+servidor é um aparelho novo; o certificado aceito na verificação do aparelho (`app_cert_sha256`, no painel)
+passa a ser o novo. A keystore e a senha (`~/keystores/novelo-keystore.properties`) precisam de cópia fora
+desta máquina.
 
 O botão "Atualizar" baixa a versão nova com o app segurando um serviço em primeiro plano (`update/UpdateService`,
 dataSync, progresso numa notificação silenciosa, CPU acordada até 20 min): minimizado ou com a tela apagada, o
