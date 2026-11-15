@@ -371,6 +371,10 @@ Novelo backup.zip
   resposta inteira (é a que a próxima conversa olha, `lastDone`). `Attached.madeFrom` só dá à foto o item que tem o
   número dela quando o item tem números (`pics`); sem números — toda foto sozinha antes da 1.74.0 — tudo o que ela fez
   é dela, como sempre. Deu errado (sem rede): todas esperam e vão juntas de novo.
+- **Silêncio curto no que vai ouvir (1.74.0)**: o que vai pro servidor do Novelo ou pra API dela é uma cópia com os
+  silêncios longos encurtados (`Pieces.squeeze`: mais de 1 s quieto fica com 0,4 s, metade em cada ponta; quieto é
+  ~17 dB abaixo da voz dela e nunca acima de um sussurro). Ouvir é pago por segundo e esperado por byte; a gravação
+  guardada não muda, e os pedaços (e o recomeço de onde parou) seguem os mesmos.
 
 ## Motor no celular
 

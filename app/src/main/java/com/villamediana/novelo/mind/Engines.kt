@@ -179,7 +179,8 @@ class Hearing(
         if (Pieces.isSilent(piece)) return ""
         val file = File(tmp, "piece-${System.nanoTime()}.wav")
         val wav = try {
-            Wav.write(file, piece)
+            // Her long silences made short: paid by the second, waited for by the byte.
+            Wav.write(file, Pieces.squeeze(piece))
             file.readBytes()
         } finally {
             file.delete()
@@ -200,11 +201,12 @@ class Hearing(
         if (parts.size > 1 && start.pieces < parts.size) onPiece(Heard(done, start.pieces, by, parts.size))
         for ((i, p) in parts.withIndex()) {
             if (i < start.pieces) continue
-            val file = if (p == null) wav else File(tmp, "piece-${System.nanoTime()}.wav").also { Wav.write(it, p) }
+            // What goes is a copy with her long silences made short (paid by the minute); the recording stays whole.
+            val file = File(tmp, "piece-${System.nanoTime()}.wav").also { Wav.write(it, Pieces.squeeze(p ?: samples)) }
             try {
                 done = join(done, api.transcribe(ep, a.model, file, null))
             } finally {
-                if (p != null) file.delete()
+                file.delete()
             }
             onPartial(done)
             onPiece(Heard(done, i + 1, by, parts.size))
