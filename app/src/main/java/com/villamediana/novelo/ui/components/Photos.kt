@@ -56,7 +56,6 @@ import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -102,16 +101,27 @@ fun photoAspect(path: String): Float = synchronized(ratios) { ratios[path] } ?: 
     r
 }
 
-/** The shapes of [photos] (id → width over height, kept within [min]..[max]), read off the main thread; null until read. */
+/**
+ * The shapes of [photos] (id → width over height, kept within [min]..[max]), read off the main thread;
+ * null until read. Shapes read before (a card scrolled away and back) are there at once: no frame
+ * without them, nothing that comes in again.
+ */
 @Composable
 fun rememberAspects(photos: List<Photo>, min: Float, max: Float): Map<Long, Float>? {
-    val aspects by produceState<Map<Long, Float>?>(null, photos) {
-        value = withContext(Dispatchers.IO) {
-            photos.associate { p -> p.id to photoAspect(p.path).let { r -> if (p.turn % 180 == 90) 1f / r else r }.coerceIn(min, max) }
+    val aspects by produceState(knownAspects(photos, min, max), photos) {
+        value = knownAspects(photos, min, max) ?: withContext(Dispatchers.IO) {
+            photos.associate { p -> p.id to aspectOf(p, photoAspect(p.path), min, max) }
         }
     }
     return aspects
 }
+
+/** [photos]' shapes when every one was read before; null when one wasn't. */
+private fun knownAspects(photos: List<Photo>, min: Float, max: Float): Map<Long, Float>? = synchronized(ratios) {
+    if (photos.any { it.path !in ratios }) null else photos.associate { p -> p.id to aspectOf(p, ratios.getValue(p.path), min, max) }
+}
+
+private fun aspectOf(p: Photo, r: Float, min: Float, max: Float): Float = (if (p.turn % 180 == 90) 1f / r else r).coerceIn(min, max)
 
 /**
  * The photo at [path], at most [maxPx] on its long side, upright ([turn] more to the right); null
@@ -129,13 +139,15 @@ fun rememberPhoto(path: String, maxPx: Int, turn: Int = 0): Bitmap? {
     return bitmap.value
 }
 
-/** A photo filling its box (cropped), coming in softly once it is decoded. */
+/**
+ * A photo filling its box (cropped), there as soon as it is decoded — no fade: scrolled away and back,
+ * it doesn't come in again (Miguel, 1.77).
+ */
 @Composable
 fun PhotoTile(path: String, modifier: Modifier = Modifier, maxPx: Int = 480, turn: Int = 0) {
     val bitmap = rememberPhoto(path, maxPx, turn)
-    val shown by animateFloatAsState(if (bitmap != null) 1f else 0f, tween(260), label = "photo")
     Box(modifier.background(NoveloColors.Surface2)) {
-        bitmap?.let { Image(it.asImageBitmap(), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().alpha(shown)) }
+        bitmap?.let { Image(it.asImageBitmap(), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
     }
 }
 

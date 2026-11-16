@@ -9,7 +9,13 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 
 /** What the screens do to entries by hand (tap the circle, change the status, edit, delete). */
-class Library(private val db: NoveloDatabase, private val reminders: ReminderSync, private val clock: () -> Long = System::currentTimeMillis) {
+class Library(
+    private val db: NoveloDatabase,
+    private val reminders: ReminderSync,
+    private val clock: () -> Long = System::currentTimeMillis,
+    /** A medicine made by hand is born ringing as an alarm, unless she turned that off (Ajustes › Alarme). */
+    private val alarmByDefault: () -> Boolean = { true },
+) {
     fun all(): Flow<List<Entry>> = db.entries().observeAll()
     fun entry(id: Long): Flow<Entry?> = db.entries().observe(id)
 
@@ -161,7 +167,7 @@ class Library(private val db: NoveloDatabase, private val reminders: ReminderSyn
     suspend fun newMed(): Long {
         val now = clock()
         // From today (the whole day: a time already gone today shows, to tick).
-        return db.meds().insert(Med(name = "", startsAt = com.villamediana.novelo.meds.Doses.startOfDay(now, java.time.ZoneId.systemDefault()), createdAt = now, updatedAt = now))
+        return db.meds().insert(Med(name = "", startsAt = com.villamediana.novelo.meds.Doses.startOfDay(now, java.time.ZoneId.systemDefault()), alarm = alarmByDefault(), createdAt = now, updatedAt = now))
     }
 
     /**

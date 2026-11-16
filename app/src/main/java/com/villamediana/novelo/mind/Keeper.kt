@@ -19,6 +19,8 @@ class Keeper(
     private val db: NoveloDatabase,
     private val zone: () -> ZoneId = { ZoneId.systemDefault() },
     private val clock: () -> Long = System::currentTimeMillis,
+    /** What has a time is born ringing as an alarm, unless she turned that off (Ajustes › Alarme). */
+    private val alarmByDefault: () -> Boolean = { true },
 ) {
     /**
      * What happened, in order; entries whose reminders changed are in [touched]; the medicines made or
@@ -111,8 +113,8 @@ class Keeper(
                 // A task that repeats: its times count from the first one.
                 occursFrom = remindAt.takeIf { repeat != null && kind == Kind.TASK },
                 checkInAt = if (kind == Kind.TASK) ahead(item.checkInAt) else null,
-                // With a time it rings as an alarm, unless she asked for only a notice.
-                alarm = item.alarm ?: true,
+                // With a time it rings as an alarm (or only notifies) as she asked; unsaid, as Ajustes says.
+                alarm = item.alarm ?: alarmByDefault(),
                 sensitive = item.sensitive,
                 createdAt = now,
                 updatedAt = now,
@@ -198,7 +200,7 @@ class Keeper(
         }
         if (plan.update.any { it.delete }) db.graph().pruneTopics()
         // A medicine's "dei há 20 minutos" counts from when she said it, too.
-        val meds = MedKeeper.apply(db, plan.meds, captureId, sentPhotos, photo, base, z)
+        val meds = MedKeeper.apply(db, plan.meds, captureId, sentPhotos, photo, base, z, alarmByDefault())
         Result(outcomes.distinctBy { it.entryId to it.action }, touched.distinct(), meds.meds, meds.changed)
     }
 

@@ -18,7 +18,8 @@ internal object MedKeeper {
      * [sentPhotos]: the photos sent with what she said, numbered as the model saw them; [photo]: the
      * photo she sent alone (what she photographed is the medicine: the box, the prescription).
      */
-    suspend fun apply(db: NoveloDatabase, asks: List<MedAsk>, captureId: Long?, sentPhotos: List<Long>, photo: Long?, now: Long, z: ZoneId): Done {
+    /** [alarm]: whether a new medicine's times ring as an alarm when she didn't say (Ajustes › Alarme). */
+    suspend fun apply(db: NoveloDatabase, asks: List<MedAsk>, captureId: Long?, sentPhotos: List<Long>, photo: Long?, now: Long, z: ZoneId, alarm: Boolean = true): Done {
         if (asks.isEmpty()) return Done(emptyList(), false)
         val dao = db.meds()
         // The people there are: "cooper" is Cooper.
@@ -44,11 +45,11 @@ internal object MedKeeper {
                     Categories.fold(m0.name) == Categories.fold(name) && m0.person?.let(Categories::fold) == who && !Doses.ended(m0, now)
                 }
                 if (same != null) {
-                    apply(db, listOf(ask.copy(id = same.id, name = null)), captureId, sentPhotos, photo, now, z).let { d -> ids += d.meds; changed = changed || d.changed }
+                    apply(db, listOf(ask.copy(id = same.id, name = null)), captureId, sentPhotos, photo, now, z, alarm).let { d -> ids += d.meds; changed = changed || d.changed }
                     continue
                 }
             }
-            var m = old ?: Med(name = name ?: continue, startsAt = firstDose(ask, now, z), captureId = captureId, createdAt = now, updatedAt = now)
+            var m = old ?: Med(name = name ?: continue, startsAt = firstDose(ask, now, z), captureId = captureId, alarm = alarm, createdAt = now, updatedAt = now)
             if (old != null) {
                 name?.let { m = m.copy(name = it) }
                 ask.start?.let { s -> start(s, now, z)?.let { m = m.copy(startsAt = it) } }

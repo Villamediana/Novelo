@@ -92,6 +92,30 @@ class KeeperAndMindTest {
     }
 
     @Test
+    fun withTheAlarmOffInAjustesWhatHasATimeOnlyNotifiesUnlessSheAsksForIt() = runBlocking {
+        val k = Keeper(db, zone = { zone }, clock = { now }, alarmByDefault = { false })
+        val plan = Brain.parse(
+            """{"reply":"ok","create":[{"kind":"task","title":"Tirar o bolo","remind_at":"+10m"},{"kind":"task","title":"Acordar","remind_at":"+1h","alarm":true}],
+            "meds":[{"name":"Losartana","times":["08:00"]},{"name":"Vitamina D","times":["09:00"],"alarm":true}]}""",
+        )!!
+        val r = k.apply(plan, captureId = null, saidAt = now)
+        val (bolo, acordar) = r.outcomes.map { db.entries().get(it.entryId)!! }
+        assertTrue(!bolo.alarm)
+        assertTrue(acordar.alarm)
+        val (losartana, vitamina) = r.meds.map { db.meds().get(it)!! }
+        assertTrue(!losartana.alarm)
+        assertTrue(vitamina.alarm)
+        // A medicine made by hand is born the same way.
+        val lib = com.villamediana.novelo.data.Library(
+            db,
+            object : com.villamediana.novelo.mind.ReminderSync { override suspend fun sync(entryIds: List<Long>) {} },
+            clock = { now },
+            alarmByDefault = { false },
+        )
+        assertTrue(!db.meds().get(lib.newMed())!!.alarm)
+    }
+
+    @Test
     fun updatesStatusStepsAndTheText() = runBlocking {
         val id = db.entries().insert(
             Entry(kind = "task", title = "Contrato", body = "Fechar com o fornecedor novo.", status = "doing", steps = Steps.write(listOf(com.villamediana.novelo.data.Step("pedir orçamento"), com.villamediana.novelo.data.Step("assinar"))), checkInAt = now + 5000, createdAt = now, updatedAt = now),

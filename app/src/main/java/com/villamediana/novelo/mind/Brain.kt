@@ -145,7 +145,7 @@ data class MedAsk(
     @Serializable(with = Picks::class) val photos: List<Int> = emptyList(),
     /** The dose of now given (true) — or, a mistake, not given after all (false). */
     val taken: Boolean? = null,
-    /** Its times ring as an alarm (the default) or only notify (false). */
+    /** Its times ring as an alarm (true) or only notify (false); null: as she set in Ajustes. */
     val alarm: Boolean? = null,
     /** Doses marked by mistake, at the times she said: not given after all. */
     @SerialName("untaken_at") @Serializable(with = Strings::class) val untakenAt: List<String> = emptyList(),
@@ -185,7 +185,7 @@ data class NewItem(
     @Serializable(with = Picks::class) val photos: List<Int> = emptyList(),
     /** The files she sent (their numbers) that live in this item. */
     @Serializable(with = Picks::class) val files: List<Int> = emptyList(),
-    /** Its reminder rings as an alarm (the default; null) or only notifies (false). */
+    /** Its reminder rings as an alarm (true) or only notifies (false); null: as she set in Ajustes. */
     val alarm: Boolean? = null,
 )
 
@@ -262,7 +262,7 @@ Como preencher:
 - Datas relativas (amanhã, sexta, daqui a duas semanas, às 3 da tarde) viram data absoluta a partir de AGORA, no formato AAAA-MM-DD ou AAAA-MM-DDTHH:MM. Sem data dita, null.
 - Tempo contado a partir de agora (daqui a 10 minutos, em 30 segundos, daqui a uma hora e meia, daqui a 2 dias; e o que já passou: há 20 minutos): escreva só o tempo, sem fazer a conta — "+10m", "+30s", "+1h30m", "+2d", "-20m" (d, h, m, s, números inteiros). O celular conta no relógio dele, até o segundo.
 - remind_at: quando ela pede pra ser lembrada, ou quando algo tem hora marcada (lembre um pouco antes).
-- alarm: lembrete com hora, e remédio com horário, toca como alarme até ela parar — é o normal, não escreva. Quando ela pede só um aviso, sem tocar ("só me avisa", "sem alarme", "uma notificação só"): "alarm": false; pra voltar a tocar como alarme: true.
+- alarm: lembrete com hora, e remédio com horário, toca como alarme até ela parar ou só avisa, como ela deixou no app — sem pedido dela, não escreva. Quando ela pede pra tocar como alarme ("com alarme", "me acorda", "toca até eu parar"): "alarm": true. Quando pede só um aviso, sem tocar ("só me avisa", "sem alarme", "uma notificação só"): "alarm": false.
 - repeat: quando o lembrete (e a tarefa) volta sempre — todo dia, em dias da semana, todo mês: {"every": "day" | "week" | "month", "days": [1-7, 1 = segunda, só com week], "times": ["HH:MM", …] todos os horários quando é mais de um no dia}; remind_at é a primeira vez, com a hora. Pra parar de repetir: {"every": "none"}.
 - check_in_at: em tarefas que levam dias ou têm etapas, escolha um bom momento pra perguntar como está. Pode ser null.
 - steps: as etapas, quando a tarefa tem mais de um passo. status: todo, doing, waiting ou done.

@@ -54,11 +54,18 @@ import java.time.format.TextStyle
 /**
  * The reminder, set by hand: the day and the hour, and whether it comes back — not, every day, on
  * days of the week (tapped), or every month. [onSave] gets the first time and the rule (null: once);
- * [onRemove] takes it off.
+ * [onRemove] takes it off. A reminder put for the first time rings as an alarm or not as Ajustes ›
+ * Alarme says ([alarmByDefault]); one already there, as it was.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun ReminderSheet(e: Entry, onSave: (Long, Repeat?, Boolean) -> Unit, onRemove: () -> Unit, onDismiss: () -> Unit) {
+internal fun ReminderSheet(
+    e: Entry,
+    onSave: (Long, Repeat?, Boolean) -> Unit,
+    onRemove: () -> Unit,
+    onDismiss: () -> Unit,
+    alarmByDefault: Boolean = com.villamediana.novelo.NoveloApplication.graph.settings.now.value.alarmByDefault,
+) {
     val context = LocalContext.current
     val zone = ZoneId.systemDefault()
     val rule = remember(e.id) { Repeat.read(e.repeat) }
@@ -75,8 +82,8 @@ internal fun ReminderSheet(e: Entry, onSave: (Long, Repeat?, Boolean) -> Unit, o
     fun hhmm(at: LocalTime) = "%02d:%02d".format(at.hour, at.minute)
     var every by remember(e.id) { mutableStateOf(rule?.every) }
     var days by remember(e.id) { mutableStateOf(rule?.days?.toSet()?.takeIf { it.isNotEmpty() } ?: setOf(start.dayOfWeek.value)) }
-    // Rings as an alarm (the default) or only notifies.
-    var alarm by remember(e.id) { mutableStateOf(e.alarm) }
+    // Rings as an alarm or only notifies: a new reminder as Ajustes says, one already there as it was.
+    var alarm by remember(e.id) { mutableStateOf(if (e.remindAt == null) alarmByDefault else e.alarm) }
 
     NoveloSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp)) {

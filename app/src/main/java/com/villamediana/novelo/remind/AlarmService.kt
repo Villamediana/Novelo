@@ -188,27 +188,30 @@ class AlarmService : Service() {
     private fun act(action: String): PendingIntent =
         PendingIntent.getService(this, action.hashCode(), Intent(this, AlarmService::class.java).setAction(action), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
 
-    /** The phone's alarm sound, looping, from soft to full; nothing over a call (the buzz says it). Music pauses. */
+    /**
+     * The sound she chose (Ajustes › Alarme), or the phone's alarm sound, looping, from soft to full;
+     * nothing over a call (the buzz says it). Music pauses. A chosen sound that can't play any more
+     * (deleted, on a card taken out) gives way to the phone's: an alarm never stays mute.
+     */
     private fun play() {
         stopSound()
         val audio = getSystemService(AudioManager::class.java) ?: return
         if (audio.mode == AudioManager.MODE_IN_CALL || audio.mode == AudioManager.MODE_IN_COMMUNICATION) return
-        val uri = RingtoneManager.getActualDefaultRingtoneUri(this, RingtoneManager.TYPE_ALARM)
-            ?: RingtoneManager.getActualDefaultRingtoneUri(this, RingtoneManager.TYPE_NOTIFICATION)
-            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-            ?: return
+        val chosen = runCatching { NoveloApplication.graph.settings.now.value.alarmSound }.getOrDefault("")
         val attributes = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build()
         focus = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT).setAudioAttributes(attributes).build().also { audio.requestAudioFocus(it) }
-        player = runCatching {
-            MediaPlayer().apply {
-                setAudioAttributes(attributes)
-                setDataSource(this@AlarmService, uri)
-                isLooping = true
-                setVolume(START_VOLUME, START_VOLUME)
-                prepare()
-                start()
-            }
-        }.getOrNull()
+        player = sounds(this, chosen).firstNotNullOfOrNull { uri ->
+            val p = MediaPlayer()
+            runCatching {
+                p.setAudioAttributes(attributes)
+                p.setDataSource(this@AlarmService, uri)
+                p.isLooping = true
+                p.setVolume(START_VOLUME, START_VOLUME)
+                p.prepare()
+                p.start()
+                p
+            }.getOrElse { p.release(); null }
+        }
         step = 0
         main.removeCallbacks(rise)
         main.postDelayed(rise, RISE_MS / RISE_STEPS)
@@ -280,6 +283,17 @@ class AlarmService : Service() {
         private const val START_VOLUME = 0.15f
         private const val RISE_MS = 20_000L
         private const val RISE_STEPS = 20
+
+        /**
+         * The sounds to try, in order: the one she [chosen] (a uri from Android's sound picker; empty:
+         * none), then the phone's alarm sound, its notification sound, Android's own alarm.
+         */
+        internal fun sounds(context: Context, chosen: String): List<android.net.Uri> = listOfNotNull(
+            chosen.takeIf { it.isNotBlank() }?.let { runCatching { android.net.Uri.parse(it) }.getOrNull() },
+            RingtoneManager.getActualDefaultRingtoneUri(context, RingtoneManager.TYPE_ALARM),
+            RingtoneManager.getActualDefaultRingtoneUri(context, RingtoneManager.TYPE_NOTIFICATION),
+            RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM),
+        ).distinct()
 
         private val _ringing = MutableStateFlow<Ringing?>(null)
 

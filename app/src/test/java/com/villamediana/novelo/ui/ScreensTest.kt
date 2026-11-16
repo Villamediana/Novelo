@@ -1570,6 +1570,71 @@ class ScreensTest {
     }
 
     @Test
+    fun theAlarmInSettingsAndANewReminderThatFollowsIt() {
+        val id = runBlocking {
+            graph.settings.setAlarmByDefault(true)
+            graph.settings.setAlarmSound("")
+            graph.db.entries().insert(Entry(kind = "task", title = "Tirar o bolo", status = "todo", createdAt = now, updatedAt = now))
+        }
+        val inSettings = androidx.compose.runtime.mutableStateOf(true)
+        compose.setContent { NoveloTheme(ThemeMode.LIGHT) { if (inSettings.value) SettingsScreen(Nav()) else EntryScreen(Nav(), id) } }
+        try {
+            // Closed, its line says the sound and how new ones are born.
+            compose.onNodeWithText("O do celular · tocam como alarme").performScrollTo().assertExists()
+            compose.onNodeWithText("Alarme").performClick()
+            compose.mainClock.advanceTimeBy(600)
+            compose.onNodeWithText("Som do alarme").assertExists()
+            compose.onNodeWithText("Novos lembretes tocam como alarme").assertExists()
+            shot("51b-settings-alarm")
+            compose.onNodeWithTag("alarm-default").performClick()
+            compose.waitUntil(5_000) { !graph.settings.now.value.alarmByDefault }
+            compose.onNodeWithText("Lembretes e remédios com hora só avisam", substring = true).assertExists()
+            // A reminder put now is born only notifying (she can still turn the alarm on there).
+            inSettings.value = false
+            compose.waitUntil(5_000) { compose.onAllNodesWithText("Tirar o bolo").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText("Lembrete").performClick()
+            compose.waitUntil(5_000) { compose.onAllNodesWithTag("alarm-toggle").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText("Só uma notificação").assertExists()
+        } finally {
+            runBlocking { graph.settings.setAlarmByDefault(true) }
+        }
+    }
+
+    @Test
+    fun photosSeenBeforeAreThereAtOnceWhenTheirCardComesBack() {
+        val photos = listOf(com.villamediana.novelo.mind.Photo(1, "/nao/existe/a.jpg", now, null, null), com.villamediana.novelo.mind.Photo(2, "/nao/existe/b.jpg", now, null, null, turn = 90))
+        val shown = androidx.compose.runtime.mutableStateOf(true)
+        val firstSeen = ArrayList<Map<Long, Float>?>()
+        var latest: Map<Long, Float>? = null
+        compose.setContent {
+            if (shown.value) {
+                val aspects = com.villamediana.novelo.ui.components.rememberAspects(photos, min = 0.5f, max = 2f)
+                androidx.compose.runtime.remember { firstSeen += aspects; 0 }
+                latest = aspects
+            }
+        }
+        // The first time, read off the main thread (nothing on the first frame).
+        compose.waitUntil(5_000) { latest != null }
+        org.junit.Assert.assertNull(firstSeen.single())
+        // Scrolled away and back: there on its first frame (nothing comes in again).
+        shown.value = false
+        compose.waitForIdle()
+        shown.value = true
+        compose.waitForIdle()
+        assertEquals(2, firstSeen.size)
+        assertEquals(mapOf(1L to 1f, 2L to 1f), firstSeen.last())
+    }
+
+    @Test
+    fun theAlarmTriesHerSoundFirstThenThePhones() {
+        val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+        val mine = "content://media/internal/audio/media/42"
+        assertEquals(android.net.Uri.parse(mine), com.villamediana.novelo.remind.AlarmService.sounds(context, mine).first())
+        // None chosen: only the phone's (whatever this phone has), never an empty one.
+        assertTrue(com.villamediana.novelo.remind.AlarmService.sounds(context, "").none { it.toString() == mine || it.toString().isBlank() })
+    }
+
+    @Test
     fun theme() {
         val nav = Nav()
         // (mode, accent, the main screen instead of Tema)

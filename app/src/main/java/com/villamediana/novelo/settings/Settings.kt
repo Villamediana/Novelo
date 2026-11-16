@@ -121,6 +121,10 @@ data class NoveloSettings(
     val tabOrder: String = "",
     /** The tabs she hid ("gallery,meds"). */
     val tabsHidden: String = "",
+    /** What has a time (a reminder, a medicine's times) is born ringing as an alarm (1.76), or only notifying. */
+    val alarmByDefault: Boolean = true,
+    /** The sound the alarm rings with (a uri from Android's sound picker); empty: the phone's alarm sound. */
+    val alarmSound: String = "",
 ) {
     val provider: Provider get() = Providers.of(apiProvider)
 
@@ -180,6 +184,8 @@ class Settings(private val context: Context, scope: CoroutineScope) {
             setupDone = p[SETUP_DONE] ?: false,
             tabOrder = p[TAB_ORDER].orEmpty(),
             tabsHidden = p[TABS_HIDDEN].orEmpty(),
+            alarmByDefault = p[ALARM_DEFAULT] ?: true,
+            alarmSound = p[ALARM_SOUND].orEmpty(),
         )
     }
 
@@ -238,6 +244,10 @@ class Settings(private val context: Context, scope: CoroutineScope) {
     suspend fun setAccent(id: String) = store.edit { it[ACCENT] = id }
     suspend fun setHintSeen() = store.edit { it[HINT_SEEN] = true }
     suspend fun setLockSensitive(on: Boolean) = store.edit { it[LOCK_SENSITIVE] = on }
+    suspend fun setAlarmByDefault(on: Boolean) = store.edit { it[ALARM_DEFAULT] = on }
+
+    /** The alarm's sound ([uri]: from Android's sound picker; empty: the phone's alarm sound). */
+    suspend fun setAlarmSound(uri: String) = store.edit { p -> if (uri.isBlank()) p.remove(ALARM_SOUND) else p[ALARM_SOUND] = uri }
 
     /** The library's tabs: their order and the ones hidden (keys as [com.villamediana.novelo.ui.library.TabOrder] writes them). */
     suspend fun setTabs(order: List<String>, hidden: Set<String>) = store.edit {
@@ -292,6 +302,8 @@ class Settings(private val context: Context, scope: CoroutineScope) {
         val LOCK_SENSITIVE = booleanPreferencesKey("lock_sensitive")
         val TAB_ORDER = stringPreferencesKey("tab_order")
         val TABS_HIDDEN = stringPreferencesKey("tabs_hidden")
+        val ALARM_DEFAULT = booleanPreferencesKey("alarm_default")
+        val ALARM_SOUND = stringPreferencesKey("alarm_sound")
         val BACKUP_FOLDER = stringPreferencesKey("backup_folder")
         val BACKUP_PLACE = stringPreferencesKey("backup_place")
         val BACKUP_AT = longPreferencesKey("backup_at")
