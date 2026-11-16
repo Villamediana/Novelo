@@ -75,7 +75,7 @@ class AppGraph(context: Context) {
     }
     val recorder: Recorder by lazy { Recorder() }
     val reminders: Reminders by lazy { Reminders(appContext, db) }
-    val library: Library by lazy { Library(db, reminders) }
+    val library: Library by lazy { Library(db, reminders, alarmByDefault = { settings.now.value.alarmByDefault }) }
 
     /**
      * The medicines and the doses given, kept in memory from the start: a screen that shows them (Hoje,
@@ -125,7 +125,7 @@ class AppGraph(context: Context) {
             recorder = recorder,
             hearing = Hearing(settings, api, engine, localModel, appContext.cacheDir, server),
             thinking = thinking,
-            keeper = Keeper(db),
+            keeper = Keeper(db, alarmByDefault = { settings.now.value.alarmByDefault }),
             reminders = reminders,
             photos = MlKitPhotoReader(appContext),
             mic = AndroidMicHolder(appContext),

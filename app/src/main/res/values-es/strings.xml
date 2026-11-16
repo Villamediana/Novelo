@@ -246,6 +246,16 @@
     <string name="alarm_stop">Detener</string>
     <string name="alarm_snooze">10 min más</string>
     <string name="alarm_meds">Hora del remedio</string>
+    <string name="alarm_title">Alarma</string>
+    <string name="alarm_sound">Sonido de la alarma</string>
+    <string name="alarm_sound_phone">El del celular</string>
+    <string name="alarm_sound_chosen">Sonido elegido</string>
+    <string name="alarm_sound_unplayable">Ese sonido no puede sonar desde aquí. Elige otro.</string>
+    <string name="alarm_default">Los recordatorios nuevos suenan como alarma</string>
+    <string name="alarm_default_on">Recordatorios y remedios con hora suenan hasta que los detengas. Puedes cambiarlo en cada uno.</string>
+    <string name="alarm_default_off">Recordatorios y remedios con hora solo avisan. Puedes encender la alarma en cada uno.</string>
+    <string name="alarm_summary_on">%1$s · suenan como alarma</string>
+    <string name="alarm_summary_off">%1$s · solo avisan</string>
     <string name="read_nothing">No pude leer nada en la foto. Intenta más cerca, con más luz.</string>
     <string name="api_answered">La API respondió %1$d: %2$s</string>
     <string name="offline_kept">Sin conexión ahora. Lo guardé; se va solo cuando vuelva internet.</string>

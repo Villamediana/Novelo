@@ -73,7 +73,7 @@ import com.villamediana.novelo.ui.theme.NoveloColors
 import com.villamediana.novelo.ui.update.UpdateRow
 
 /** The parts of Ajustes, each opened in place. */
-private enum class Part { AI, THEME, TABS, BACKUP, PRIVACY, LANGUAGE, SENSE }
+private enum class Part { AI, THEME, TABS, ALARM, BACKUP, PRIVACY, LANGUAGE, SENSE }
 
 /**
  * Ajustes: one page. Each part is a line that says in a few words how things are (in the accent
@@ -105,6 +105,7 @@ fun SettingsScreen(nav: Nav, openAi: Boolean = false) {
                 false, open == Part.THEME, { toggle(Part.THEME) },
             ) { ThemeSection() }
             Fold(t(R.string.tabs_title), tabsSummary(s), false, open == Part.TABS, { toggle(Part.TABS) }) { TabsSection() }
+            Fold(t(R.string.alarm_title), alarmSummary(s.alarmSound, s.alarmByDefault), false, open == Part.ALARM, { toggle(Part.ALARM) }) { AlarmSection() }
             Fold(t(R.string.backup), backup.first, backup.second, open == Part.BACKUP, { toggle(Part.BACKUP) }) { BackupSection() }
             // The search by meaning's model: it comes by itself on the first Wi-Fi; here she sees it, or brings it now.
             if (LocalEngine.available) {

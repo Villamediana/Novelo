@@ -998,7 +998,12 @@ private fun DiaryCard(e: Entry, onClick: () -> Unit, shape: Shape, photos: List<
 @Composable
 private fun DayThumbs(photos: List<Photo>) {
     var opened by rememberSaveable { mutableStateOf<Int?>(null) }
-    val aspects = com.villamediana.novelo.ui.components.rememberAspects(photos, min = Mosaic.MIN, max = Mosaic.MAX) ?: return
+    // The first time ever, while their shapes are read: their height already kept (the card doesn't grow after).
+    val aspects = com.villamediana.novelo.ui.components.rememberAspects(photos, min = Mosaic.MIN, max = Mosaic.MAX)
+    if (aspects == null) {
+        Spacer(Modifier.height(THUMB_TALL))
+        return
+    }
     androidx.compose.foundation.lazy.LazyRow(
         Modifier.fillMaxWidth().nestedScroll(KeepSideways).testTag("diary-photos"),
         horizontalArrangement = Arrangement.spacedBy(6.dp),

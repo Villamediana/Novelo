@@ -410,6 +410,18 @@ Novelo backup.zip
   grande, o que é, o novelo respirando e um Parar redondo com uma onda saindo. Com o celular na mão, a notificação
   no alto com os mesmos botões. Sem permissão de notificação, ou o Android não deixando o serviço subir, ou mais de
   10 min atrasado (celular desligado na hora, `LATE_MS`): só a notificação. Feito no app (ou tomado) para o que toca.
+- **Ajustes › Alarme (1.77.0)** (`AlarmSection`):
+  - **Som do alarme** abre o seletor de sons do próprio Android (`ACTION_RINGTONE_PICKER`, `TYPE_ALARM`): ela ouve cada
+    um e pode pôr um seu. Fica em `NoveloSettings.alarmSound`; vazio é o do celular.
+  - Um som que este app não consegue abrir não é guardado: aparece um aviso.
+  - Na hora de tocar, `AlarmService.sounds` tenta o escolhido, depois o alarme do celular, a notificação e o alarme do
+    Android. Um som apagado depois não deixa o alarme mudo.
+  - **Novos lembretes tocam como alarme** (`alarmByDefault`, ligado por padrão) decide como nasce o que tem hora:
+    - o que o modelo cria (`Keeper` e `MedKeeper`, quando ela não disse `alarm`);
+    - o remédio feito à mão (`Library.newMed`);
+    - o primeiro lembrete posto à mão (`ReminderSheet`; um lembrete que já existia fica como estava).
+  - O modelo só escreve `alarm` quando ela pede ("com alarme" vira `true`, "só me avisa" vira `false`), então os dois
+    jeitos do ajuste funcionam com o mesmo texto do sistema.
 
 ## Tempo a partir de agora (1.76.0)
 
