@@ -119,6 +119,10 @@ class MedsTest {
         assertNull(losartana.person)
         assertNull(losartana.amount)
         assertTrue(Doses.times(dipirona).isEmpty()) // only when needed
+        // Their times ring as an alarm unless she says otherwise.
+        assertTrue(amox.alarm && losartana.alarm)
+        keeper.apply(Brain.parse("""{"reply":"ok","meds":[{"id":${losartana.id},"alarm":false}]}""")!!, null)
+        assertTrue(!db.meds().get(losartana.id)!!.alarm)
         // Another for "COOPER" is the same Cooper.
         keeper.apply(Brain.parse("""{"reply":"ok","meds":[{"name":"Vermífugo","person":"COOPER","times":["09:00"]}]}""")!!, null)
         assertEquals(setOf("Cooper"), db.meds().all().mapNotNull { it.person }.toSet())
@@ -339,13 +343,13 @@ class MedsTest {
         assertTrue(Brain.SYSTEM.contains("vou dar às 10"))
     }
 
-    /** Hoje (1.69): the times of the last 2 hours and every one still to come today. */
+    /** Hoje (1.69): the times of the last 3 hours (2 until 1.75) and every one still to come today. */
     @Test
-    fun hojeShowsFromTwoHoursAgoToTheDaysEnd() {
-        val slots = listOf(0, 7, 8, 10, 13, 16, 20).map { Doses.Slot(at(today, it), emptyList()) }
+    fun hojeShowsFromThreeHoursAgoToTheDaysEnd() {
+        val slots = listOf(0, 6, 7, 8, 10, 13, 16, 20).map { Doses.Slot(at(today, it), emptyList()) }
         val near = com.villamediana.novelo.ui.meds.fromNear(slots, at(today, 9, 41))
-        assertEquals(listOf(8, 10, 13, 16, 20).map { at(today, it) }, near.map { it.at })
-        // Late at night, nothing more today: only the last 2 hours.
+        assertEquals(listOf(7, 8, 10, 13, 16, 20).map { at(today, it) }, near.map { it.at })
+        // Late at night, nothing more today: only the last 3 hours.
         assertEquals(listOf(at(today, 20)), com.villamediana.novelo.ui.meds.fromNear(slots, at(today, 21)).map { it.at })
     }
 
@@ -380,10 +384,11 @@ class MedsTest {
         assertEquals(listOf(1L), com.villamediana.novelo.ui.meds.medsFound(listOf(amox, losartana), "amoxi cooper").map { it.id })
         assertEquals(listOf(1L), com.villamediana.novelo.ui.meds.medsFound(listOf(amox, losartana), "COMER").map { it.id })
         assertTrue(com.villamediana.novelo.ui.meds.medsFound(listOf(amox, losartana), "  ").isEmpty())
-        // 09:00: both 08:00 are due and not ticked; one ticked, one left; at 11:00 they are no longer near.
+        // 09:00: both 08:00 are due and not ticked; one ticked, one left; at 11:00 still near (3 h), at noon no longer.
         assertEquals(2, com.villamediana.novelo.ui.meds.dosesDue(listOf(amox, losartana), emptyList(), at(today, 9), zone))
         assertEquals(1, com.villamediana.novelo.ui.meds.dosesDue(listOf(amox, losartana), listOf(MedTaken(2, at(today, 8), now)), at(today, 9), zone))
-        assertEquals(0, com.villamediana.novelo.ui.meds.dosesDue(listOf(amox, losartana), emptyList(), at(today, 11), zone))
+        assertEquals(2, com.villamediana.novelo.ui.meds.dosesDue(listOf(amox, losartana), emptyList(), at(today, 11), zone))
+        assertEquals(0, com.villamediana.novelo.ui.meds.dosesDue(listOf(amox, losartana), emptyList(), at(today, 12), zone))
         // 00:30: last night's 23:00 is still near (to tick), with today's to come.
         val night = med("Noturno", listOf("23:00", "07:00"), start = at(today.minusDays(3), 0), id = 3)
         val yesterday = Doses.day(listOf(night), today.minusDays(1), zone)

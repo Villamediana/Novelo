@@ -17,6 +17,10 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Two short buzzes when the microphone closes by itself (a long silence). -->
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- A reminder that rings as an alarm: over the lock screen, and kept ringing by a foreground service
+         (the kind Android gives apps with exact alarms that continue an alarm). -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SYSTEM_EXEMPTED" />
     <!-- Lembretes na hora certa -->
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
@@ -157,6 +161,24 @@
             android:name=".update.UpdateService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <service
+            android:name=".remind.AlarmService"
+            android:exported="false"
+            android:foregroundServiceType="systemExempted" />
+
+        <!-- The alarm ringing, over the lock screen: a screen of its own, out of the app's task. -->
+        <activity
+            android:name=".ui.alarm.AlarmActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleInstance"
+            android:taskAffinity=""
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.Novelo"
+            tools:ignore="DiscouragedApi,LockedOrientationActivity" />
 
         <receiver android:name=".remind.ReminderReceiver" android:exported="false" />
         <receiver android:name=".remind.MedReceiver" android:exported="false" />

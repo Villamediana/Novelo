@@ -68,6 +68,30 @@ class KeeperAndMindTest {
     }
 
     @Test
+    fun aTimeFromNowCountsFromWhenSheSaidItAndRingsAsAnAlarmUnlessSheSaysNot() = runBlocking {
+        // Said 20 s before the answer came: "daqui a 10 minutos" is 10 minutes from then, to the second.
+        val said = now - 20_000L
+        val plan = Brain.parse("""{"reply":"ok","create":[{"kind":"task","title":"Tirar o bolo","remind_at":"+10m"},{"kind":"task","title":"Ligar pra mãe","remind_at":"+1h","alarm":false},{"kind":"note","title":"Água","remind_at":"+30s"}]}""")!!
+        val r = keeper().apply(plan, captureId = null, saidAt = said)
+        val (bolo, mae, agua) = r.outcomes.map { db.entries().get(it.entryId)!! }
+        assertEquals(said + 10 * 60_000L, bolo.remindAt)
+        assertTrue(bolo.alarm)
+        assertEquals(said + 3_600_000L, mae.remindAt)
+        assertTrue(!mae.alarm)
+        assertEquals(said + 30_000L, agua.remindAt)
+        // "Em 30 segundos", and the answer took longer than that (said 40 s ago): it rings right away, not never.
+        val late = keeper().apply(Brain.parse("""{"reply":"ok","create":[{"kind":"note","title":"Chá","remind_at":"+30s"}]}""")!!, null, saidAt = now - 40_000L)
+        assertEquals(now + 1_000L, db.entries().get(late.outcomes.single().entryId)!!.remindAt)
+        // She changes her mind: only a notice, then an alarm again.
+        keeper().apply(Brain.parse("""{"update":[{"id":${bolo.id},"alarm":false}]}""")!!, null)
+        assertTrue(!db.entries().get(bolo.id)!!.alarm)
+        keeper().apply(Brain.parse("""{"update":[{"id":${bolo.id},"alarm":true,"remind_at":"+5m"}]}""")!!, null, saidAt = now)
+        val again = db.entries().get(bolo.id)!!
+        assertTrue(again.alarm)
+        assertEquals(now + 5 * 60_000L, again.remindAt)
+    }
+
+    @Test
     fun updatesStatusStepsAndTheText() = runBlocking {
         val id = db.entries().insert(
             Entry(kind = "task", title = "Contrato", body = "Fechar com o fornecedor novo.", status = "doing", steps = Steps.write(listOf(com.villamediana.novelo.data.Step("pedir orçamento"), com.villamediana.novelo.data.Step("assinar"))), checkInAt = now + 5000, createdAt = now, updatedAt = now),

@@ -61,6 +61,7 @@ internal object MedKeeper {
             ask.person?.let { m = m.copy(person = person(it)) }
             ask.end?.let { e -> m = m.copy(endsAt = if (e.trim().lowercase() in NO_END) null else end(e, z) ?: m.endsAt) }
             ask.notes?.let { m = m.copy(notes = it.trim().take(300)) }
+            ask.alarm?.let { m = m.copy(alarm = it) }
             ask.days?.let { m = m.copy(days = Doses.writeDays(it)) }
             m = times(m, ask, z)
             (picked(ask.photos) ?: photo.takeIf { old == null })?.let { m = m.copy(photoId = it) }
@@ -137,7 +138,7 @@ internal object MedKeeper {
     /** When a dose was given: "10:30" is today at that time; a day and time, that. */
     private fun givenAt(text: String, now: Long, z: ZoneId): Long? {
         Doses.time(text)?.let { t -> return Doses.dayOf(now, z).atTime(t).atZone(z).toInstant().toEpochMilli() }
-        val (ms, hasTime) = Brain.time(text, z) ?: return null
+        val (ms, hasTime) = Brain.time(text, z, now) ?: return null
         return if (hasTime) ms else null
     }
 
@@ -153,7 +154,7 @@ internal object MedKeeper {
      * ("De 8 em 8 horas, a primeira às 8": today's 00:00 isn't one of its doses.)
      */
     private fun firstDose(ask: MedAsk, now: Long, z: ZoneId): Long {
-        val said = Brain.time(ask.start, z)
+        val said = Brain.time(ask.start, z, now)
         if (said?.second == true) return said.first
         val day = Doses.dayOf(said?.first ?: now, z)
         val first = ask.times.firstNotNullOfOrNull { Doses.time(it) } ?: return day.atStartOfDay(z).toInstant().toEpochMilli()
@@ -165,7 +166,7 @@ internal object MedKeeper {
      * tick (a treatment of 4 days has its 4 doses); a time is that time.
      */
     private fun start(text: String?, now: Long, z: ZoneId): Long? {
-        val (ms, hasTime) = Brain.time(text, z) ?: return null
+        val (ms, hasTime) = Brain.time(text, z, now) ?: return null
         if (hasTime) return ms
         return Doses.startOfDay(ms, z)
     }

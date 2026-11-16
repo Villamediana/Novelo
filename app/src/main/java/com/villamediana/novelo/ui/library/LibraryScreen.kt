@@ -346,8 +346,9 @@ fun LibraryScreen(nav: Nav, screen: Screen.Library) {
                         f == Filter.GALLERY -> Gallery(photos, empty = { Empty(Filter.GALLERY) })
                         f == Filter.MEDS -> com.villamediana.novelo.ui.meds.MedsPage(onOpen = { nav.go(Screen.Med(it)) }, empty = { Empty(Filter.MEDS) })
                         f == Filter.TODAY && list != null -> {
-                            // Hoje by its times (Miguel, 1.69): the medicines and the tasks of each hour together, from 2 hours
-                            // ago (to tick one forgotten) to the end of the day; a task left more than 2 hours goes to Atrasadas.
+                            // Hoje by its times (Miguel, 1.69): the medicines and the tasks of each hour together, to the end of
+                            // the day — a medicine's time from 3 hours ago (1.76; to tick one forgotten), a task's from 2; a task
+                            // left more than 2 hours goes to Atrasadas.
                             val now = com.villamediana.novelo.ui.meds.rememberNow()
                             val day = com.villamediana.novelo.ui.meds.rememberToday(now)
                             val slots = remember(day?.slots, day?.lastNight, now / 60_000) { com.villamediana.novelo.ui.meds.fromNear(day?.lastNight.orEmpty() + day?.slots.orEmpty(), now) }

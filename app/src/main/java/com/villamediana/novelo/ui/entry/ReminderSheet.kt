@@ -58,7 +58,7 @@ import java.time.format.TextStyle
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun ReminderSheet(e: Entry, onSave: (Long, Repeat?) -> Unit, onRemove: () -> Unit, onDismiss: () -> Unit) {
+internal fun ReminderSheet(e: Entry, onSave: (Long, Repeat?, Boolean) -> Unit, onRemove: () -> Unit, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val zone = ZoneId.systemDefault()
     val rule = remember(e.id) { Repeat.read(e.repeat) }
@@ -75,6 +75,8 @@ internal fun ReminderSheet(e: Entry, onSave: (Long, Repeat?) -> Unit, onRemove: 
     fun hhmm(at: LocalTime) = "%02d:%02d".format(at.hour, at.minute)
     var every by remember(e.id) { mutableStateOf(rule?.every) }
     var days by remember(e.id) { mutableStateOf(rule?.days?.toSet()?.takeIf { it.isNotEmpty() } ?: setOf(start.dayOfWeek.value)) }
+    // Rings as an alarm (the default) or only notifies.
+    var alarm by remember(e.id) { mutableStateOf(e.alarm) }
 
     NoveloSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp)) {
@@ -140,7 +142,9 @@ internal fun ReminderSheet(e: Entry, onSave: (Long, Repeat?) -> Unit, onRemove: 
             val made = Repeat.from(every, days.toList(), first, zone, times.map(::hhmm))
             Spacer(Modifier.height(14.dp))
             Text(made?.describe() ?: Dates.dayTime(first, zone), style = MaterialTheme.typography.bodyMedium, color = NoveloColors.Text)
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(12.dp))
+            com.villamediana.novelo.ui.components.AlarmToggle(alarm, { alarm = it })
+            Spacer(Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End), verticalAlignment = Alignment.CenterVertically) {
                 if (e.remindAt != null) {
                     Box(Modifier.clip(CircleShape).clickable(onClick = onRemove).padding(horizontal = 14.dp, vertical = 12.dp)) {
@@ -152,7 +156,7 @@ internal fun ReminderSheet(e: Entry, onSave: (Long, Repeat?) -> Unit, onRemove: 
                         // A day picked that the rule doesn't have (a Tuesday for Mon/Wed, a time already gone): its next time.
                         val now = System.currentTimeMillis()
                         val at = made?.next(maxOf(first, now) - 1, zone) ?: first
-                        onSave(at, made)
+                        onSave(at, made, alarm)
                     }.padding(horizontal = 18.dp, vertical = 12.dp).testTag("reminder-save"),
                 ) {
                     Text(t(R.string.reminder_save), style = MaterialTheme.typography.labelLarge, color = NoveloColors.OnAccent)

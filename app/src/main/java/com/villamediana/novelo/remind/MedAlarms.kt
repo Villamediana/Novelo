@@ -44,9 +44,9 @@ class MedAlarms(private val context: Context, private val db: NoveloDatabase, pr
         arm(ACTION_FIRE, 0, next, next ?: 0L)
     }
 
-    /** The ones of [at] again in a while (15 min). */
-    fun again(at: Long) {
-        arm(ACTION_AGAIN, 1 + minuteOfDay(at), System.currentTimeMillis() + SNOOZE_MS, at)
+    /** The ones of [at] again in a while (15 min; from the alarm, 10). */
+    fun again(at: Long, ms: Long = SNOOZE_MS) {
+        arm(ACTION_AGAIN, 1 + minuteOfDay(at), System.currentTimeMillis() + ms, at)
     }
 
     @SuppressLint("MissingPermission") // USE_EXACT_ALARM (33+) / SCHEDULE_EXACT_ALARM (≤32)
@@ -72,12 +72,34 @@ class MedAlarms(private val context: Context, private val db: NoveloDatabase, pr
     /** The notification of the time [at] (the same time each day is the same one). */
     fun notificationId(at: Long): Int = NOTIFICATION_BASE + minuteOfDay(at)
 
-    /** The ones due at [at] not taken yet, in one notification ("Remédios das 08:00"); nothing when all were taken. */
-    @SuppressLint("MissingPermission")
-    suspend fun notify(at: Long) {
-        val z = zone()
+    /** The ones due at [at] not taken yet. */
+    private suspend fun due(at: Long): List<Med> {
         val taken = db.meds().takenBetween(at, at).map { it.medId }.toSet()
-        val due = Doses.at(named(), at, z).filter { it.id !in taken }
+        return Doses.at(named(), at, zone()).filter { it.id !in taken }
+    }
+
+    /**
+     * Their time came: as an alarm when any of them rings as one ([Med.alarm], on unless she said otherwise),
+     * else — or when Android won't let it ring, or it is long late — in one notification. Nothing when all
+     * were taken.
+     */
+    suspend fun notify(at: Long) {
+        val due = due(at)
+        if (due.isEmpty()) return
+        if (due.any { it.alarm } && System.currentTimeMillis() - at < Reminders.LATE_MS) {
+            val time = Doses.hhmm(Instant.ofEpochMilli(at).atZone(zone()).toLocalTime())
+            val (title, text) = if (due.size == 1) due.first().let { m -> m.name + (MedText.amount(m) ?: m.strength)?.let { " · $it" }.orEmpty() to line(m, withName = false) }
+            else t(R.string.med_notif_many, time) to due.joinToString("\n") { line(it, withName = true) }
+            if (AlarmService.ring(context, Ringing(title, text, at, meds = true, task = true))) return
+        }
+        post(at)
+    }
+
+    /** The ones due at [at] not taken yet, in one notification ("Remédios das 08:00") ([silent]: they already rang). */
+    @SuppressLint("MissingPermission")
+    suspend fun post(at: Long, silent: Boolean = false) {
+        val z = zone()
+        val due = due(at)
         if (due.isEmpty()) return
         val allowed = Build.VERSION.SDK_INT < 33 ||
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
@@ -93,6 +115,7 @@ class MedAlarms(private val context: Context, private val db: NoveloDatabase, pr
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setSilent(silent)
             .setWhen(at)
         if (due.size == 1) {
             val m = due.first()
@@ -127,7 +150,10 @@ class MedAlarms(private val context: Context, private val db: NoveloDatabase, pr
     /** All due at [at] taken (ticked in the app): its notification, if it is up, goes. */
     suspend fun dismissIfDone(at: Long) {
         val taken = db.meds().takenBetween(at, at).map { it.medId }.toSet()
-        if (Doses.at(named(), at, zone()).all { it.id in taken }) NotificationManagerCompat.from(context).cancel(notificationId(at))
+        if (Doses.at(named(), at, zone()).all { it.id in taken }) {
+            NotificationManagerCompat.from(context).cancel(notificationId(at))
+            AlarmService.stopMeds(context, at)
+        }
     }
 
     /** Every one due at [at] (and not taken yet) taken now. */
