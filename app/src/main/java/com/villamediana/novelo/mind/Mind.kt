@@ -327,6 +327,8 @@ class Mind(
             return
         }
         val (file, ms) = stopped
+        // When she said it: what "daqui a 10 minutos" counts from (not when the last piece was heard).
+        val saidAt = clock()
         // From here it is work: the app keeps running for it before the microphone lets go (so the
         // background never has a gap), and the screen leaves "ouvindo" right now — the button is
         // free again and the progress shows (while it said "ouvindo", nothing else could show).
@@ -345,7 +347,7 @@ class Mind(
                 val h = l?.heard ?: Heard()
                 val id = db.captures().insert(
                     Capture(
-                        createdAt = clock(), source = "voice", audioPath = file.path, durationMs = ms, state = Capture.RECORDED, focusEntryId = s.focusId,
+                        createdAt = saidAt, source = "voice", audioPath = file.path, durationMs = ms, state = Capture.RECORDED, focusEntryId = s.focusId,
                         heard = h.text.takeIf { it.isNotEmpty() }, heardPieces = h.pieces, heardBy = h.by,
                     ),
                 )
@@ -720,7 +722,8 @@ class Mind(
             val plan = think(c, said, photo, typed, sent, seen, fileAlone = file, shows = shows)
             // The numbers the model gave each photo and file are theirs, in the order it saw them.
             val filesSent = if (file) listOf(c) else sentFiles
-            val result = keeper.apply(plan, id, sentPhotos = sent.take(MAX_SENT_SEEN).map { it.id }, sentFiles = filesSent.map { it.id }, photo = if (photo) id else null)
+            // A time from now counts from when she said or wrote it (a photo's date is when it was taken, not said).
+            val result = keeper.apply(plan, id, sentPhotos = sent.take(MAX_SENT_SEEN).map { it.id }, sentFiles = filesSent.map { it.id }, photo = if (photo) id else null, saidAt = c.createdAt.takeIf { !photo && !file })
             // A photo is the day's too: it shows in the day's diary (begun now when there is none).
             if (photo) diaryFor(c.createdAt)
             if (sent.isNotEmpty()) sent.map { it.createdAt }.distinctBy { DayDiary.bounds(it, zone()).first }.forEach { diaryFor(it) }

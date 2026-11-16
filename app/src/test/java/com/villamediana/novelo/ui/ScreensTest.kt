@@ -907,6 +907,62 @@ class ScreensTest {
         assertTrue(runBlocking { graph.db.entries().get(id)!!.remindAt!! } > System.currentTimeMillis())
     }
 
+    @Test
+    fun aReminderRingsAsAnAlarmUnlessSheTurnsItOff() {
+        val id = runBlocking { graph.db.entries().insert(Entry(kind = "task", title = "Tirar o bolo", status = "todo", createdAt = now, updatedAt = now)) }
+        compose.setContent { NoveloTheme(ThemeMode.LIGHT) { EntryScreen(Nav(), id) } }
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Tirar o bolo").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Lembrete").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("alarm-toggle").fetchSemanticsNodes().isNotEmpty() }
+        // On by default: it rings until she stops it.
+        compose.onNodeWithText("Toca até você parar").assertExists()
+        compose.mainClock.advanceTimeBy(500)
+        shot("58b-reminder-alarm")
+        compose.onNodeWithTag("alarm-toggle").performClick()
+        compose.onNodeWithText("Só uma notificação").assertExists()
+        compose.onNodeWithTag("reminder-save").performClick()
+        val e = runBlocking { withTimeout(5_000) { var x = graph.db.entries().get(id)!!; while (x.remindAt == null) { kotlinx.coroutines.delay(20); x = graph.db.entries().get(id)!! }; x } }
+        assertTrue(!e.alarm)
+    }
+
+    @Test
+    fun theAlarmRinging() {
+        val at = java.time.LocalDate.now().atTime(16, 30).atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+        var stopped = false
+        var snoozed = false
+        compose.setContent {
+            NoveloTheme(ThemeMode.LIGHT) {
+                com.villamediana.novelo.ui.alarm.AlarmScreen(
+                    com.villamediana.novelo.remind.Ringing("Tirar o bolo do forno", "Antes que queime a borda", at, entryId = 1, task = true),
+                    onStop = { stopped = true }, onSnooze = { snoozed = true }, onDone = {},
+                )
+            }
+        }
+        compose.mainClock.advanceTimeBy(700)
+        shot("59-alarm")
+        compose.onNodeWithText("16:30").assertExists()
+        compose.onNodeWithTag("alarm-done").assertExists()
+        compose.onNodeWithTag("alarm-snooze").performClick()
+        compose.onNodeWithTag("alarm-stop").performClick()
+        assertTrue(stopped && snoozed)
+    }
+
+    @Test
+    fun theMedicinesAlarmDark() {
+        val at = java.time.LocalDate.now().atTime(8, 0).atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+        compose.setContent {
+            NoveloTheme(ThemeMode.DARK) {
+                com.villamediana.novelo.ui.alarm.AlarmScreen(
+                    com.villamediana.novelo.remind.Ringing("Remédios das 08:00", "Amoxicilina · ½ comprimido · Cooper\nLosartana · 1 comprimido", at, meds = true, task = true),
+                    onStop = {}, onSnooze = {}, onDone = {},
+                )
+            }
+        }
+        compose.mainClock.advanceTimeBy(700)
+        shot("59b-alarm-meds-dark")
+        compose.onNodeWithText("Tomado").assertExists()
+    }
+
     /** A finger held on [node] (as long as a long press) and then moved down, [steps] times by [by] of its height. */
     private fun holdAndDrag(node: androidx.compose.ui.test.SemanticsNodeInteraction, steps: Int, by: Float) {
         compose.mainClock.autoAdvance = false

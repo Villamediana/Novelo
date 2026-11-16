@@ -47,6 +47,8 @@ data class Med(
     val captureId: Long? = null,
     val createdAt: Long,
     val updatedAt: Long,
+    /** Its times ring as an alarm (until she stops it) or only notify (1.76: on unless she says otherwise). */
+    @androidx.room.ColumnInfo(defaultValue = "1") val alarm: Boolean = true,
 )
 
 /** One time of a medicine taken (or given): [at] is the time it was for, [takenAt] when it was marked. */

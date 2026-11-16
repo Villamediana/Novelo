@@ -145,6 +145,8 @@ data class MedAsk(
     @Serializable(with = Picks::class) val photos: List<Int> = emptyList(),
     /** The dose of now given (true) — or, a mistake, not given after all (false). */
     val taken: Boolean? = null,
+    /** Its times ring as an alarm (the default) or only notify (false). */
+    val alarm: Boolean? = null,
     /** Doses marked by mistake, at the times she said: not given after all. */
     @SerialName("untaken_at") @Serializable(with = Strings::class) val untakenAt: List<String> = emptyList(),
     /** Doses given at times she said ("10:30", or a day and time). */
@@ -183,6 +185,8 @@ data class NewItem(
     @Serializable(with = Picks::class) val photos: List<Int> = emptyList(),
     /** The files she sent (their numbers) that live in this item. */
     @Serializable(with = Picks::class) val files: List<Int> = emptyList(),
+    /** Its reminder rings as an alarm (the default; null) or only notifies (false). */
+    val alarm: Boolean? = null,
 )
 
 /** How a reminder comes back, as the model says it: every day, week (on [days], 1 = Monday) or month, at [times] when more than one a day; "none" stops it. */
@@ -216,6 +220,8 @@ data class Change(
     @Serializable(with = Picks::class) val photos: List<Int> = emptyList(),
     /** The files she sent (their numbers) that live in this item. */
     @Serializable(with = Picks::class) val files: List<Int> = emptyList(),
+    /** Its reminder rings as an alarm (true) or only notifies (false); null: as it was. */
+    val alarm: Boolean? = null,
 )
 
 /**
@@ -254,7 +260,9 @@ Como preencher:
 - Diário é dela: escreva em primeira pessoa, no idioma, no jeito e no tom em que ela falou, como se ela mesma tivesse escrito. Só tire repetições e hesitações; não reescreva no seu estilo nem resuma o que ela contou. Divida em parágrafos como ela dividiria escrevendo: cada vez que o relato passa pra outro assunto, outro momento ou outro lugar, um parágrafo novo (uma linha em branco entre eles, "\n\n").
 - A fala chega transcrita por máquina, e a transcrição às vezes ouve uma palavra errado (um nome de comida, de lugar, de pessoa, uma marca, um termo de outra língua que vira uma palavra parecida ou sem sentido). Quando o resto da frase deixa claro qual era a palavra que ela disse, escreva a certa; quando não dá pra ter certeza, deixe como veio — nunca invente.
 - Datas relativas (amanhã, sexta, daqui a duas semanas, às 3 da tarde) viram data absoluta a partir de AGORA, no formato AAAA-MM-DD ou AAAA-MM-DDTHH:MM. Sem data dita, null.
+- Tempo contado a partir de agora (daqui a 10 minutos, em 30 segundos, daqui a uma hora e meia, daqui a 2 dias; e o que já passou: há 20 minutos): escreva só o tempo, sem fazer a conta — "+10m", "+30s", "+1h30m", "+2d", "-20m" (d, h, m, s, números inteiros). O celular conta no relógio dele, até o segundo.
 - remind_at: quando ela pede pra ser lembrada, ou quando algo tem hora marcada (lembre um pouco antes).
+- alarm: lembrete com hora, e remédio com horário, toca como alarme até ela parar — é o normal, não escreva. Quando ela pede só um aviso, sem tocar ("só me avisa", "sem alarme", "uma notificação só"): "alarm": false; pra voltar a tocar como alarme: true.
 - repeat: quando o lembrete (e a tarefa) volta sempre — todo dia, em dias da semana, todo mês: {"every": "day" | "week" | "month", "days": [1-7, 1 = segunda, só com week], "times": ["HH:MM", …] todos os horários quando é mais de um no dia}; remind_at é a primeira vez, com a hora. Pra parar de repetir: {"every": "none"}.
 - check_in_at: em tarefas que levam dias ou têm etapas, escolha um bom momento pra perguntar como está. Pode ser null.
 - steps: as etapas, quando a tarefa tem mais de um passo. status: todo, doing, waiting ou done.
@@ -286,10 +294,10 @@ Responda somente com um objeto JSON. Um exemplo do jeito (só o que foi usado):
 {"reply": "...", "create": [{"kind": "task", "title": "...", "due": "AAAA-MM-DD"}], "update": [{"id": 12, "add_steps": ["..."]}]}
 Os campos que existem:
 - reply
-- create: [{kind (task, note ou diary), title, body, tags, entities [{name, type}], category, due, remind_at, repeat, check_in_at, steps, status, sensitive, related, photos [números], files [números]}]
-- update: [{id, status, steps_done, add_steps, title, append, body, category, due, remind_at, repeat, check_in_at, entities, delete, photos [números], files [números]}]
+- create: [{kind (task, note ou diary), title, body, tags, entities [{name, type}], category, due, remind_at, alarm, repeat, check_in_at, steps, status, sensitive, related, photos [números], files [números]}]
+- update: [{id, status, steps_done, add_steps, title, append, body, category, due, remind_at, alarm, repeat, check_in_at, entities, delete, photos [números], files [números]}]
 - categories: [{name, to}]
-- meds: [{id, name, strength, dose, amount, person, times, every_hours, days, start, end, notes, photos [números], taken, taken_at, taken_count, untaken_at, delete}]
+- meds: [{id, name, strength, dose, amount, person, times, every_hours, days, start, end, notes, alarm, photos [números], taken, taken_at, taken_count, untaken_at, delete}]
 - search, period {from, to}, show, show_photos, show_meds, keep_audio
 """.trim()
 
@@ -555,9 +563,14 @@ Os campos que existem:
             ?.let { plan -> plan.copy(create = plan.create.filter { it.title.isNotBlank() && Kind.of(it.kind) != null }) }
     }
 
-    /** "2026-11-12", "2026-11-12T15:00", "2026-11-12 15:00:00" → epoch ms (and whether a time was given). */
-    fun time(text: String?, zone: ZoneId): Pair<Long, Boolean>? {
+    /**
+     * "2026-11-12", "2026-11-12T15:00", "2026-11-12 15:00:00" → epoch ms (and whether a time was given). A
+     * time from now ("+10m", "+1h30m", "+30s", "-20m") counts from [base], to the second: the model
+     * only says how long, the phone's clock does the sum.
+     */
+    fun time(text: String?, zone: ZoneId, base: Long = System.currentTimeMillis()): Pair<Long, Boolean>? {
         val s = text?.trim()?.takeIf { it.isNotEmpty() && it.lowercase() != "null" } ?: return null
+        relative(s)?.let { return base + it to true }
         val norm = s.replace(' ', 'T').removeSuffix("Z")
         runCatching {
             val dt = LocalDateTime.parse(norm.take(19).let { if (it.length == 16) "$it:00" else it })
@@ -569,6 +582,17 @@ Os campos que existem:
         }
         return null
     }
+
+    /** "+1h30m" → 5 400 000 ms, "-20m" → −1 200 000 (days, hours, minutes, seconds); anything else, null. */
+    fun relative(text: String?): Long? {
+        val m = RELATIVE.matchEntire(text?.trim()?.lowercase() ?: return null) ?: return null
+        val (sign, d, h, min, sec) = m.destructured
+        if (d.isEmpty() && h.isEmpty() && min.isEmpty() && sec.isEmpty()) return null
+        val seconds = (d.toLongOrNull() ?: 0) * 86_400 + (h.toLongOrNull() ?: 0) * 3_600 + (min.toLongOrNull() ?: 0) * 60 + (sec.toLongOrNull() ?: 0)
+        return seconds * 1_000 * (if (sign == "-") -1 else 1)
+    }
+
+    private val RELATIVE = Regex("""([+-])\s*(?:(\d{1,6})\s*d)?\s*(?:(\d{1,6})\s*h)?\s*(?:(\d{1,6})\s*m(?:in)?)?\s*(?:(\d{1,7})\s*s)?""")
 
     /** The days a [Period] covers, whole days on both ends; an open end goes on forever. Null when it names no day. */
     fun range(period: Period?, zone: ZoneId): LongRange? {
@@ -596,9 +620,9 @@ Os campos que existem:
         },
     ).joinToString(" · ")
 
-    /** A reminder needs a time: a bare day reminds at 9:00. */
-    fun remindTime(text: String?, zone: ZoneId): Long? {
-        val (ms, hasTime) = time(text, zone) ?: return null
+    /** A reminder needs a time: a bare day reminds at 9:00 (a time from now counts from [base]). */
+    fun remindTime(text: String?, zone: ZoneId, base: Long = System.currentTimeMillis()): Long? {
+        val (ms, hasTime) = time(text, zone, base) ?: return null
         if (hasTime) return ms
         val d = Instant.ofEpochMilli(ms).atZone(zone).toLocalDate()
         return d.atTime(LocalTime.of(9, 0)).atZone(zone).toInstant().toEpochMilli()

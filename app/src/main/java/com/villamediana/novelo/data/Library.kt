@@ -365,8 +365,8 @@ class Library(private val db: NoveloDatabase, private val reminders: ReminderSyn
         reminders.sync(listOf(id))
     }
 
-    /** Its reminder at [at] (null: none), coming back as [repeat] says (null: once). */
-    suspend fun setReminder(id: Long, at: Long?, repeat: com.villamediana.novelo.remind.Repeat? = null) {
+    /** Its reminder at [at] (null: none), coming back as [repeat] says (null: once), as an alarm or not ([alarm]; null: as it was). */
+    suspend fun setReminder(id: Long, at: Long?, repeat: com.villamediana.novelo.remind.Repeat? = null, alarm: Boolean? = null) {
         val e = db.entries().get(id) ?: return
         val rule = if (at == null) null else com.villamediana.novelo.remind.Repeat.write(repeat)
         // A task that repeats counts its times from the first one (the same rule set again keeps the ones it has).
@@ -378,10 +378,17 @@ class Library(private val db: NoveloDatabase, private val reminders: ReminderSyn
                 rungAt = null,
                 occursFrom = if (same) e.occursFrom else if (rule != null && e.kindEnum == Kind.TASK) at else null,
                 doneTimes = if (same) e.doneTimes else "[]",
+                alarm = alarm ?: e.alarm,
                 updatedAt = clock(),
             ),
         )
         reminders.sync(listOf(id))
+    }
+
+    /** Its reminder rings as an alarm, or only notifies. */
+    suspend fun setAlarm(id: Long, alarm: Boolean) {
+        val e = db.entries().get(id) ?: return
+        if (e.alarm != alarm) db.entries().update(e.copy(alarm = alarm, updatedAt = clock()))
     }
 
     suspend fun setDue(id: Long, at: Long?, hasTime: Boolean) {

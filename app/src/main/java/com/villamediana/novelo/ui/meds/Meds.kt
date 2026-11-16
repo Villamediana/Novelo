@@ -108,7 +108,7 @@ fun rememberToday(now: Long, zone: ZoneId = ZoneId.systemDefault()): Today? {
     val taken = all ?: return null
     val named = remember(list) { list.filter { it.name.isNotBlank() } }
     val slots = remember(named, day.first) { Doses.day(named, Doses.dayOf(now, zone), zone) }
-    val early = now - day.first < NEAR_BACK_MS
+    val early = now - day.first < MEDS_BACK_MS
     val lastNight = remember(named, day.first, early) { if (early) Doses.day(named, Doses.dayOf(now, zone).minusDays(1), zone) else emptyList() }
     return Today(list, slots, remember(taken) { taken.map { it.medId to it.at }.toSet() }, lastNight)
 }
@@ -182,8 +182,11 @@ private fun LazyListScope.medGroup(key: String, label: String, list: List<Med>, 
     }
 }
 
-/** How far back a time is still near (Hoje shows it, to tick one forgotten). */
+/** How far back a task's time is still near (Hoje shows it among the times; older and not done, Atrasadas). */
 const val NEAR_BACK_MS = 2 * 60 * 60_000L
+
+/** How far back a medicine's time stays in Hoje, to tick one forgotten (1.76: 3 h, it was 2 — a late dose stays longer). */
+const val MEDS_BACK_MS = 3 * 60 * 60_000L
 
 /** The medicines the search finds: every word of [query] in its name, who takes it, how, or its dose (no case, no accents). */
 fun medsFound(meds: List<Med>, query: String): List<Med> {
@@ -195,17 +198,17 @@ fun medsFound(meds: List<Med>, query: String): List<Med> {
     }
 }
 
-/** How many doses are due now and not ticked (the last [NEAR_BACK_MS], up to now): what the main screen's "Hoje" counts. */
+/** How many doses are due now and not ticked (the last [MEDS_BACK_MS], up to now): what the main screen's "Hoje" counts. */
 fun dosesDue(meds: List<Med>, taken: List<com.villamediana.novelo.data.MedTaken>, now: Long, zone: ZoneId = ZoneId.systemDefault()): Int {
-    val done = taken.filter { it.at >= now - NEAR_BACK_MS }.map { it.medId to it.at }.toSet()
-    return meds.filter { it.name.isNotBlank() }.sumOf { m -> Doses.slots(m, now - NEAR_BACK_MS, now, zone).count { (m.id to it) !in done } }
+    val done = taken.filter { it.at >= now - MEDS_BACK_MS }.map { it.medId to it.at }.toSet()
+    return meds.filter { it.name.isNotBlank() }.sumOf { m -> Doses.slots(m, now - MEDS_BACK_MS, now, zone).count { (m.id to it) !in done } }
 }
 
 /**
  * Hoje's medicines (Miguel, 1.69): the times of the last [back] (taken or not, to tick one forgotten) and
  * every one still to come today — the day from near now on.
  */
-fun fromNear(slots: List<Doses.Slot>, now: Long, back: Long = NEAR_BACK_MS): List<Doses.Slot> = slots.filter { it.at >= now - back }
+fun fromNear(slots: List<Doses.Slot>, now: Long, back: Long = MEDS_BACK_MS): List<Doses.Slot> = slots.filter { it.at >= now - back }
 
 /** "Você" in the people filter (a medicine with no person is hers). */
 private const val ME = "\u0000me"

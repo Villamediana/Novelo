@@ -239,6 +239,13 @@
     <string name="heard_nothing">I didn\'t hear anything. Try again, a little closer.</string>
     <string name="closed_quiet">I closed the microphone: %d minutes without hearing you.</string>
     <string name="closes_in">closes by itself in %s</string>
+    <string name="channel_alarm">Alarms</string>
+    <string name="alarm_toggle">Ring as an alarm</string>
+    <string name="alarm_on_hint">Rings until you stop it</string>
+    <string name="alarm_off_hint">Just a notification</string>
+    <string name="alarm_stop">Stop</string>
+    <string name="alarm_snooze">10 more min</string>
+    <string name="alarm_meds">Medicine time</string>
     <string name="read_nothing">I couldn\'t read anything in the photo. Try closer, with more light.</string>
     <string name="api_answered">The API answered %1$d: %2$s</string>
     <string name="offline_kept">No connection right now. I kept it; it goes by itself when the internet is back.</string>

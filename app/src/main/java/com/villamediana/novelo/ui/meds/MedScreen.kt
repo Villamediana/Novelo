@@ -295,6 +295,11 @@ fun MedScreen(nav: Nav, id: Long) {
                 }
                 Mode.NEEDED -> Text(t(R.string.med_needed_line), style = MaterialTheme.typography.bodyMedium, color = NoveloColors.TextMuted)
             }
+            // With times: they ring as an alarm (the default) or only notify.
+            if (mode != Mode.NEEDED) {
+                Spacer(Modifier.height(10.dp))
+                com.villamediana.novelo.ui.components.AlarmToggle(d.alarm, { on -> set { it.copy(alarm = on) } })
+            }
 
             // The days of the week (all of them: every day).
             if (mode != Mode.NEEDED) {

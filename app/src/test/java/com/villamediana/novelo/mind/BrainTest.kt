@@ -100,6 +100,24 @@ class BrainTest {
     }
 
     @Test
+    fun aTimeFromNowIsCountedByThePhoneToTheSecond() {
+        val base = LocalDateTime.of(2026, 11, 15, 14, 0, 7).atZone(zone).toInstant().toEpochMilli()
+        // The model only says how long; the sum is the phone's.
+        assertEquals(base + 10 * 60_000L to true, Brain.time("+10m", zone, base))
+        assertEquals(base + 30_000L, Brain.remindTime("+30s", zone, base))
+        assertEquals(base + 90 * 60_000L, Brain.remindTime("+1h30m", zone, base))
+        assertEquals(base + 2 * 86_400_000L, Brain.remindTime("+2d", zone, base))
+        assertEquals(base + 3_600_000L + 5_000L, Brain.remindTime("+1h 5s", zone, base))
+        assertEquals(base - 20 * 60_000L, Brain.remindTime("-20min", zone, base))
+        assertEquals(10 * 60_000L, Brain.relative(" +10M "))
+        // Not a time from now.
+        assertNull(Brain.relative("+"))
+        assertNull(Brain.relative("10m"))
+        assertNull(Brain.relative("2026-11-12"))
+        assertNull(Brain.relative("+10 minutos"))
+    }
+
+    @Test
     fun contextNamesItemsById() {
         val now = LocalDateTime.of(2026, 11, 11, 10, 0).atZone(zone).toInstant().toEpochMilli()
         val task = Entry(id = 12, kind = "task", title = "Contrato da torre", status = "doing", steps = Steps.write(listOf(Step("orçamento", true), Step("assinar"))), createdAt = now, updatedAt = now)

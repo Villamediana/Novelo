@@ -55,6 +55,7 @@ class Reminders(private val context: Context, private val db: NoveloDatabase) : 
             if (e == null || (e.kindEnum == Kind.TASK && e.statusEnum == Status.DONE)) {
                 notifications.cancel(notificationId(id, REMIND))
                 notifications.cancel(notificationId(id, CHECK_IN))
+                AlarmService.stopFor(context, id)
             } else if (Repeat.repeats(e) && e.rungAt != null && e.rungAt in Repeat.doneOf(e)) {
                 notifications.cancel(notificationId(id, REMIND))
             }
@@ -84,6 +85,103 @@ class Reminders(private val context: Context, private val db: NoveloDatabase) : 
         else alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
     }
 
+    /** What a reminder says: its title, and a line (its text — never a sensitive one's —, or when it is due). */
+    fun words(e: Entry, kind: Int, at: Long): Pair<String, String> {
+        val checkIn = kind == CHECK_IN
+        val said = when {
+            checkIn -> e.title
+            e.sensitive -> t(R.string.notif_sensitive)
+            e.body.isNotBlank() -> e.body.take(160)
+            e.dueAt != null && !Repeat.repeats(e) -> DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(e.dueAt))
+            else -> ""
+        }
+        // One that repeats says which of its times this is ("20:00 · Oferecer alimentação…").
+        val text = if (!checkIn && Repeat.repeats(e) && at > 0) listOf(com.villamediana.novelo.ui.components.Dates.time(at), said).filter { it.isNotBlank() }.joinToString(" · ") else said
+        return (if (checkIn) t(R.string.notif_checkin_title) else e.title) to text
+    }
+
+    /**
+     * Its time came: as an alarm, when it rings as one (a reminder with [Entry.alarm] on), else — or when
+     * Android won't let it ring, or it is long late (the phone was off) — the notification.
+     */
+    fun alert(e: Entry, kind: Int, at: Long) {
+        if (kind == REMIND && e.alarm && System.currentTimeMillis() - at < LATE_MS) {
+            val (title, text) = words(e, kind, at)
+            if (AlarmService.ring(context, Ringing(title, text, at, entryId = e.id, task = e.kindEnum == Kind.TASK))) return
+        }
+        show(e, kind, at)
+    }
+
+    /** The notification of a reminder or check-in ([silent]: it already rang as an alarm). */
+    @SuppressLint("MissingPermission")
+    fun show(e: Entry, kind: Int, at: Long, silent: Boolean = false) {
+        val allowed = Build.VERSION.SDK_INT < 33 ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        if (!allowed) return
+        Notifications.createChannels(context)
+        val id = notificationId(e.id, kind)
+        val open = PendingIntent.getActivity(
+            context, id,
+            NoveloActivity.openEntry(context, e.id),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val checkIn = kind == CHECK_IN
+        val (title, text) = words(e, kind, at)
+        val b = NotificationCompat.Builder(context, if (checkIn) Notifications.CHANNEL_CHECKIN else Notifications.CHANNEL_REMIND)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setColor(ContextCompat.getColor(context, R.color.accent))
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .setSilent(silent)
+            .setCategory(if (checkIn) NotificationCompat.CATEGORY_REMINDER else NotificationCompat.CATEGORY_ALARM)
+            .setPriority(if (checkIn) NotificationCompat.PRIORITY_DEFAULT else NotificationCompat.PRIORITY_HIGH)
+        if (checkIn) {
+            val talk = PendingIntent.getActivity(
+                context, id + 1,
+                NoveloActivity.talkAbout(context, e.id),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+            b.addAction(0, t(R.string.notif_talk), talk)
+        }
+        if (e.kindEnum == Kind.TASK) b.addAction(0, t(R.string.notif_done), action(ACTION_DONE, e.id, kind, at))
+        b.addAction(0, t(R.string.notif_snooze), action(ACTION_SNOOZE, e.id, kind, at))
+        NotificationManagerCompat.from(context).notify(id, b.build())
+    }
+
+    private fun action(action: String, entryId: Long, kind: Int, at: Long): PendingIntent {
+        val intent = Intent(context, ReminderReceiver::class.java).setAction(action)
+            .putExtra(EXTRA_ENTRY, entryId)
+            .putExtra(EXTRA_KIND, kind)
+            .putExtra(EXTRA_AT, at)
+        val code = requestCode(entryId, kind) * 4 + (if (action == ACTION_DONE) 1 else 2)
+        return PendingIntent.getBroadcast(context, code, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+    }
+
+    /** Done from the notification or the alarm: the same as ticking it in the app — one that repeats, the time that rang (put off: the one that counts now). */
+    suspend fun done(entryId: Long, kind: Int, at: Long) {
+        val e = db.entries().get(entryId) ?: return
+        val library = NoveloApplication.graph.library
+        if (Repeat.repeats(e)) {
+            val zone = java.time.ZoneId.systemDefault()
+            val time = at.takeIf { it != 0L && Repeat.isTime(e, it, zone) } ?: Repeat.current(e, System.currentTimeMillis(), zone)
+            if (time != null) library.setTime(e.id, time, done = true)
+        } else library.setStatus(e.id, Status.DONE)
+        NotificationManagerCompat.from(context).cancel(notificationId(e.id, kind))
+    }
+
+    /** Again in [ms] — one that repeats rings at its next time if that comes first. */
+    suspend fun snooze(entryId: Long, kind: Int, ms: Long) {
+        val e = db.entries().get(entryId) ?: return
+        val later = System.currentTimeMillis() + ms
+        val at = if (kind == REMIND) minOf(later, Repeat.nextRing(e, System.currentTimeMillis(), java.time.ZoneId.systemDefault()) ?: later) else later
+        db.entries().update(if (kind == CHECK_IN) e.copy(checkInAt = at) else e.copy(remindAt = at))
+        sync(listOf(e.id))
+        NotificationManagerCompat.from(context).cancel(notificationId(e.id, kind))
+    }
+
     private fun pending(entryId: Long, kind: Int, at: Long, create: Boolean): PendingIntent? {
         val intent = Intent(context, ReminderReceiver::class.java)
             .setAction(ACTION_FIRE)
@@ -97,6 +195,9 @@ class Reminders(private val context: Context, private val db: NoveloDatabase) : 
     companion object {
         const val REMIND = 0
         const val CHECK_IN = 1
+
+        /** Later than this (the phone was off at its time), an alarm comes only as a notification. */
+        const val LATE_MS = 10 * 60_000L
         const val ACTION_FIRE = "com.villamediana.novelo.remind.FIRE"
         const val ACTION_DONE = "com.villamediana.novelo.remind.DONE"
         const val ACTION_SNOOZE = "com.villamediana.novelo.remind.SNOOZE"
@@ -122,25 +223,10 @@ class ReminderReceiver : BroadcastReceiver() {
                 val db = graph.db
                 val e = db.entries().get(entryId) ?: return@launch
                 when (intent.action) {
-                    Reminders.ACTION_FIRE -> fire(context, db, e, kind, intent.getLongExtra(Reminders.EXTRA_AT, 0))
-                    Reminders.ACTION_DONE -> {
-                        // The same as ticking it in the app — one that repeats: the time that rang (put off: the one that counts now).
-                        val at = intent.getLongExtra(Reminders.EXTRA_AT, 0L)
-                        if (Repeat.repeats(e)) {
-                            val zone = java.time.ZoneId.systemDefault()
-                            val time = at.takeIf { it != 0L && Repeat.isTime(e, it, zone) } ?: Repeat.current(e, System.currentTimeMillis(), zone)
-                            if (time != null) graph.library.setTime(e.id, time, done = true)
-                        } else graph.library.setStatus(e.id, Status.DONE)
-                        NotificationManagerCompat.from(context).cancel(Reminders.notificationId(e.id, kind))
-                    }
-                    Reminders.ACTION_SNOOZE -> {
-                        // An hour later — one that repeats rings at its next time if that comes first.
-                        val later = System.currentTimeMillis() + 60 * 60_000L
-                        val at = if (kind == Reminders.REMIND) minOf(later, Repeat.nextRing(e, System.currentTimeMillis(), java.time.ZoneId.systemDefault()) ?: later) else later
-                        db.entries().update(if (kind == Reminders.CHECK_IN) e.copy(checkInAt = at) else e.copy(remindAt = at))
-                        graph.reminders.sync(listOf(e.id))
-                        NotificationManagerCompat.from(context).cancel(Reminders.notificationId(e.id, kind))
-                    }
+                    Reminders.ACTION_FIRE -> fire(db, e, kind, intent.getLongExtra(Reminders.EXTRA_AT, 0))
+                    Reminders.ACTION_DONE -> graph.reminders.done(e.id, kind, intent.getLongExtra(Reminders.EXTRA_AT, 0L))
+                    // An hour later.
+                    Reminders.ACTION_SNOOZE -> graph.reminders.snooze(e.id, kind, 60 * 60_000L)
                 }
             } finally {
                 result.finish()
@@ -148,7 +234,7 @@ class ReminderReceiver : BroadcastReceiver() {
         }
     }
 
-    private suspend fun fire(context: Context, db: NoveloDatabase, e: Entry, kind: Int, at: Long) {
+    private suspend fun fire(db: NoveloDatabase, e: Entry, kind: Int, at: Long) {
         // Moved or cleared since it was armed: this one is stale.
         val current = if (kind == Reminders.CHECK_IN) e.checkInAt else e.remindAt
         if (current == null || (at != 0L && current != at)) return
@@ -164,61 +250,7 @@ class ReminderReceiver : BroadcastReceiver() {
             // Any other keeps its time (the task stays in Hoje, late when not done) and doesn't ring again.
             db.entries().update(e.copy(rungAt = current))
         }
-        notify(context, e, kind, current)
-    }
-
-    @SuppressLint("MissingPermission")
-    private fun notify(context: Context, e: Entry, kind: Int, at: Long) {
-        val allowed = Build.VERSION.SDK_INT < 33 ||
-            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-        if (!allowed) return
-        Notifications.createChannels(context)
-        val id = Reminders.notificationId(e.id, kind)
-        val open = PendingIntent.getActivity(
-            context, id,
-            NoveloActivity.openEntry(context, e.id),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
-        val checkIn = kind == Reminders.CHECK_IN
-        val said = when {
-            checkIn -> e.title
-            e.sensitive -> t(R.string.notif_sensitive)
-            e.body.isNotBlank() -> e.body.take(160)
-            e.dueAt != null && !Repeat.repeats(e) -> DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(e.dueAt))
-            else -> ""
-        }
-        // One that repeats says which of its times this is ("20:00 · Oferecer alimentação…").
-        val text = if (!checkIn && Repeat.repeats(e) && at > 0) listOf(com.villamediana.novelo.ui.components.Dates.time(at), said).filter { it.isNotBlank() }.joinToString(" · ") else said
-        val b = NotificationCompat.Builder(context, if (checkIn) Notifications.CHANNEL_CHECKIN else Notifications.CHANNEL_REMIND)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setColor(ContextCompat.getColor(context, R.color.accent))
-            .setContentTitle(if (checkIn) t(R.string.notif_checkin_title) else e.title)
-            .setContentText(text)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
-            .setContentIntent(open)
-            .setAutoCancel(true)
-            .setCategory(if (checkIn) NotificationCompat.CATEGORY_REMINDER else NotificationCompat.CATEGORY_ALARM)
-            .setPriority(if (checkIn) NotificationCompat.PRIORITY_DEFAULT else NotificationCompat.PRIORITY_HIGH)
-        if (checkIn) {
-            val talk = PendingIntent.getActivity(
-                context, id + 1,
-                NoveloActivity.talkAbout(context, e.id),
-                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-            )
-            b.addAction(0, t(R.string.notif_talk), talk)
-        }
-        if (e.kindEnum == Kind.TASK) b.addAction(0, t(R.string.notif_done), action(context, Reminders.ACTION_DONE, e.id, kind, at))
-        b.addAction(0, t(R.string.notif_snooze), action(context, Reminders.ACTION_SNOOZE, e.id, kind, at))
-        NotificationManagerCompat.from(context).notify(id, b.build())
-    }
-
-    private fun action(context: Context, action: String, entryId: Long, kind: Int, at: Long): PendingIntent {
-        val intent = Intent(context, ReminderReceiver::class.java).setAction(action)
-            .putExtra(Reminders.EXTRA_ENTRY, entryId)
-            .putExtra(Reminders.EXTRA_KIND, kind)
-            .putExtra(Reminders.EXTRA_AT, at)
-        val code = Reminders.requestCode(entryId, kind) * 4 + (if (action == Reminders.ACTION_DONE) 1 else 2)
-        return PendingIntent.getBroadcast(context, code, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        NoveloApplication.graph.reminders.alert(e, kind, current)
     }
 }
 

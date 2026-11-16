@@ -29,9 +29,10 @@ class Keeper(
     /**
      * [sentPhotos] and [sentFiles]: the photos and files she sent with it, in the order the model saw
      * them numbered (1, 2…): an item's numbers become theirs. [photo]: the photo she sent alone (the
-     * capture itself), which a medicine made from it keeps.
+     * capture itself), which a medicine made from it keeps. [saidAt]: when she said it — a time from now
+     * ("daqui a 10 minutos") counts from there, not from when the answer came.
      */
-    suspend fun apply(plan: Plan, captureId: Long?, sentPhotos: List<Long> = emptyList(), sentFiles: List<Long> = emptyList(), photo: Long? = null): Result = db.withTransaction {
+    suspend fun apply(plan: Plan, captureId: Long?, sentPhotos: List<Long> = emptyList(), sentFiles: List<Long> = emptyList(), photo: Long? = null, saidAt: Long? = null): Result = db.withTransaction {
         /** An item's numbers → (all of them, these capture ids). */
         fun picked(nums: List<Int>, ids: List<Long>): Pair<Boolean, List<Long>> =
             if (Picks.ALL in nums) true to emptyList() else false to nums.mapNotNull { ids.getOrNull(it - 1) }.distinct()
@@ -42,6 +43,15 @@ class Keeper(
         }
         val now = clock()
         val z = zone()
+        val base = saidAt?.coerceAtMost(now) ?: now
+        /**
+         * A reminder ahead, from what the model wrote. A time from now counts from when she said it, and
+         * one that went by while this was being worked out ("em 30 segundos") rings right away, not never.
+         */
+        fun ahead(text: String?): Long? {
+            val at = Brain.remindTime(text, z, base) ?: return null
+            return if (Brain.relative(text) != null) maxOf(at, now + 1_000) else at.takeIf { it > now }
+        }
         val outcomes = mutableListOf<Outcome>()
         val touched = mutableListOf<Long>()
         val known = HashSet<Long>()
@@ -84,9 +94,9 @@ class Keeper(
                     continue
                 }
             }
-            val due = Brain.time(item.due, z)
+            val due = Brain.time(item.due, z, base)
             val status = if (kind == Kind.TASK) (Status.of(item.status) ?: Status.TODO) else null
-            val (repeat, remindAt) = repeating(item.repeat, Brain.remindTime(item.remindAt, z)?.takeIf { it > now }, now, z)
+            val (repeat, remindAt) = repeating(item.repeat, ahead(item.remindAt), now, z)
             val entry = Entry(
                 kind = kind.key,
                 title = item.title.trim().take(140),
@@ -100,7 +110,9 @@ class Keeper(
                 repeat = repeat,
                 // A task that repeats: its times count from the first one.
                 occursFrom = remindAt.takeIf { repeat != null && kind == Kind.TASK },
-                checkInAt = if (kind == Kind.TASK) Brain.remindTime(item.checkInAt, z)?.takeIf { it > now } else null,
+                checkInAt = if (kind == Kind.TASK) ahead(item.checkInAt) else null,
+                // With a time it rings as an alarm, unless she asked for only a notice.
+                alarm = item.alarm ?: true,
                 sensitive = item.sensitive,
                 createdAt = now,
                 updatedAt = now,
@@ -144,9 +156,10 @@ class Keeper(
             change.body?.takeIf { it.isNotBlank() }?.let { e = e.copy(body = it.trim()) }
             // One text per item: what is new joins it (no history kept apart that says the same again).
             change.append?.takeIf { it.isNotBlank() }?.let { e = e.copy(body = if (e.kindEnum == Kind.DIARY) DayDiary.merge(e.body, it) else joined(e.body, it)) }
-            Brain.time(change.due, z)?.let { (ms, hasTime) -> e = e.copy(dueAt = ms, dueHasTime = hasTime) }
-            Brain.remindTime(change.remindAt, z)?.takeIf { it > now }?.let { e = e.copy(remindAt = it) }
-            Brain.remindTime(change.checkInAt, z)?.takeIf { it > now }?.let { e = e.copy(checkInAt = it) }
+            Brain.time(change.due, z, base)?.let { (ms, hasTime) -> e = e.copy(dueAt = ms, dueHasTime = hasTime) }
+            ahead(change.remindAt)?.let { e = e.copy(remindAt = it) }
+            ahead(change.checkInAt)?.let { e = e.copy(checkInAt = it) }
+            change.alarm?.let { e = e.copy(alarm = it) }
             // It comes back from now on (from its reminder, or from now), or not any more.
             change.repeat?.let { ask ->
                 if (ask.every.trim().lowercase() in STOP) e = e.copy(repeat = null, occursFrom = null, doneTimes = "[]")
@@ -184,7 +197,8 @@ class Keeper(
             }
         }
         if (plan.update.any { it.delete }) db.graph().pruneTopics()
-        val meds = MedKeeper.apply(db, plan.meds, captureId, sentPhotos, photo, now, z)
+        // A medicine's "dei há 20 minutos" counts from when she said it, too.
+        val meds = MedKeeper.apply(db, plan.meds, captureId, sentPhotos, photo, base, z)
         Result(outcomes.distinctBy { it.entryId to it.action }, touched.distinct(), meds.meds, meds.changed)
     }
 

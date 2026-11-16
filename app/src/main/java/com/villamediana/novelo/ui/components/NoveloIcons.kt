@@ -37,6 +37,7 @@ object NoveloIcons {
     val Download: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_download)
     val Calendar: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_calendar)
     val Bell: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_bell)
+    val Alarm: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_alarm)
     val Pill: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_pill)
     val Eye: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_eye)
     val EyeOff: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_eye_off)

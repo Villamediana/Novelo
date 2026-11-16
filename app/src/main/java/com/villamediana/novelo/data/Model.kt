@@ -70,6 +70,8 @@ data class Entry(
     val occursFrom: Long? = null,
     /** A task that repeats: its times done (JSON list of ms, from [occursFrom] on) — each time is ticked on its own. */
     @androidx.room.ColumnInfo(defaultValue = "[]") val doneTimes: String = "[]",
+    /** Its reminder rings as an alarm (until she stops it) or only notifies (1.76: on unless she says otherwise). */
+    @androidx.room.ColumnInfo(defaultValue = "1") val alarm: Boolean = true,
 ) {
     val kindEnum: Kind get() = Kind.of(kind) ?: Kind.NOTE
     val statusEnum: Status? get() = Status.of(status)

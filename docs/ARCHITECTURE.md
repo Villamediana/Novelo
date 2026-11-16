@@ -394,6 +394,31 @@ Novelo backup.zip
   Ouvir em pedaços de 28 s custa o mesmo que de uma vez (as instruções de ouvir, ~60 tokens, a mais por pedaço; o
   silêncio já vai encurtado e pedaço calado nem sai) e deixa ouvir enquanto ela fala.
 
+## Alarme (1.76.0)
+
+- **Lembrete com hora toca como alarme**, e os horários de remédio também: `Entry.alarm` e `Med.alarm` (banco v15,
+  ligados por padrão; o modelo escreve `"alarm": false` quando ela pede só um aviso, e `true` pra voltar). Em Lembrete
+  (`ReminderSheet`) e no remédio, a linha "Tocar como alarme" (`AlarmToggle`); o cartão do lembrete mostra o
+  despertador (`ic_alarm`) em vez do sino quando toca.
+- **Na hora** (`Reminders.alert`, `MedAlarms.notify`): com alarme, `AlarmService` (serviço em primeiro plano,
+  `systemExempted` no 14+, o tipo que o Android dá a quem tem alarme exato e continua um alarme; um alarme exato
+  pode iniciá-lo em segundo plano). Toca o som de alarme do celular (`USAGE_ALARM`, do baixinho ao cheio em 20 s,
+  em loop, com foco de áudio: a música pausa; numa ligação, só vibra) e vibra em ciclo, até ela tocar em Parar,
+  Mais 10 min ou Feito/Tomado — ou 2 min passarem (`RING_MS`): aí fica quieto e vira a notificação de sempre
+  (`show`/`post` com `silent`), nada se perde. Um toca por vez; o que tocava vira a notificação de sempre.
+- **Tela bloqueada**: tela cheia (`AlarmActivity`, `showWhenLocked`/`turnScreenOn`, `USE_FULL_SCREEN_INTENT`): a hora
+  grande, o que é, o novelo respirando e um Parar redondo com uma onda saindo. Com o celular na mão, a notificação
+  no alto com os mesmos botões. Sem permissão de notificação, ou o Android não deixando o serviço subir, ou mais de
+  10 min atrasado (celular desligado na hora, `LATE_MS`): só a notificação. Feito no app (ou tomado) para o que toca.
+
+## Tempo a partir de agora (1.76.0)
+
+"Daqui a 10 minutos", "em 30 segundos", "daqui a uma hora e meia", "há 20 minutos": o modelo não faz a conta, escreve
+só o tempo (`"+10m"`, `"+30s"`, `"+1h30m"`, `"+2d"`, `"-20m"`; `Brain.relative`) e o celular soma no relógio dele,
+até o segundo, a partir de quando ela disse (`Keeper.apply(saidAt)`: a captura de voz guarda a hora do parar, a de
+texto a do enviar; foto não, a data dela é de quando foi tirada). Um lembrete assim que já passou enquanto o pedido
+andava toca na hora, em vez de sumir. Vale pra prazo, lembrete, pergunta de como está e dose dada ("dei há 20 min").
+
 ## Motor no celular
 
 `novelo_engine.cpp` usa só as APIs C de `llama.h`, `mtmd.h` e `mtmd-helper.h` (llama.cpp v0.9.0):
@@ -700,7 +725,7 @@ pras outras telas passou a seguir 70% do dedo (`SWIPE_FOLLOW = 0.7f`).
   do Novelo"). Primeiros passos: "Quem vai ver suas fotos e documentos?" só quando a API ouve. Home: faltando quem
   vê, o cartão diz (`Missing.SEE`, `locks = false`) e o botão não trava. A busca por sentido é do celular (1.74.0).
 - Junto (1.66.0): dose futura não é marcada ("vou dar às 10" é horário; `taken_at` adiante de agora é ignorado), e o
-  Hoje mostra só os horários das últimas 2 horas e o próximo (`nearTimes`); o dia inteiro fica em Remédios.
+  Hoje mostra só os horários de remédio das últimas 3 horas (2 até a 1.75; `MEDS_BACK_MS`) e o próximo (`nearTimes`); a tarefa com hora segue 2 horas antes de ir pra Atrasadas (`NEAR_BACK_MS`); o dia inteiro fica em Remédios.
 
 ## Abas (1.64.0)
 
