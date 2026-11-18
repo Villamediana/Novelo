@@ -49,6 +49,44 @@ Se a API recusa o pedido (400/415/422), `Thinking` tenta de novo sem a imagem e 
 `response_format`. Lembrete que venceu com o celular desligado toca quando ele liga; tarefa feita
 perde o lembrete.
 
+## Novelo Web (1.79.0, 2026-11-18)
+
+Pedido do Miguel: o mesmo Novelo no computador, ligado ao celular por QR code, tudo sincronizado nos dois
+sentidos — no computador o foco é **escrever** (no celular é falar). No celular, o site só mostra "baixe o app".
+O site é do servidor (novelo-server: `web/`, React; protocolo e cifra em `docs/WEB.md` de lá).
+
+- **Cifra de ponta a ponta.** O celular cria a chave do espaço (32 bytes, selada pelo AndroidKeyStore,
+  `PrefsSpace`) e manda pro servidor só registros e arquivos cifrados (`sync/SyncCrypto.kt`: HKDF → AES-GCM dos
+  registros, HMAC dos nomes, AES-GCM dos arquivos). O servidor guarda bytes que não lê.
+- **Registros = linhas do banco** (`sync/SyncEngine.kt`, `SyncTables`): `{t, id, r}`, sem os caminhos de arquivo
+  do celular (no lugar, `media`). Versão por registro no servidor; escrita com `base`; conflito volta e é
+  **juntado campo a campo** (`merge`). Ids do computador num espaço alto (2^45–2^50): os mesmos dos dois lados.
+  O estado de cada registro fica em `sync_records` (banco v16): número, hash, base; **apagado** fica lembrado
+  (`GONE`) pra que a mesma linha feita de novo (dose desmarcada e marcada) suba por cima.
+- **Quem recebe confere**: tabela conhecida, id da linha igual ao do registro e nome igual ao HMAC dele
+  (`isItself`); arquivo só de tipo conhecido e id válido; nome de arquivo vindo de fora vira um nome só
+  (`PhoneMedia.safeName`).
+- **Ligar** (`sync/NoveloWeb.kt`, `ui/link/LinkScreen.kt`, Ajustes › Computador): o QR tem o id do código, a
+  chave pública do computador e um **segredo** que nunca passa pelo servidor; o app só aceita código do próprio
+  servidor (`NoveloWeb.code`), pede confirmação ("só ligue um código que você mesmo abriu") e manda a chave do
+  espaço cifrada pra pública do computador com o segredo misturado (`novelo-link-v2`). A câmera comum também
+  abre o app (App Link verificado; `assetlinks.json` vem do servidor).
+- **Quando sincroniza**: com o app aberto, um laço de espera longa (`NoveloWeb.live`); mudança aqui
+  (`changedHere`) sobe na hora; app fechado, `SyncWorker` a cada 15 min com rede. O que veio do computador e
+  pede alarme/lembrete reagenda (`reminders.sync`, `syncMeds`); texto escrito no computador sem a inteligência
+  do servidor chega como captura `recorded` e o celular organiza.
+- **Fotos e arquivos**: sobem cifrados (os grandes só fora do 4G, `SMALL`); a foto também numa miniatura de
+  480 px; o que vem do computador desce e vai pro lugar dele (`moveFiles`). O servidor apaga o que ninguém usa
+  mais (`keep`).
+- **Desligar/parar**: Ajustes › Computador lista e desliga cada um; "Parar" apaga o espaço do servidor.
+- **Paridade**: a página repete o `Brain`, o `Keeper`, as repetições, os remédios, o diário, a busca e as abas em
+  JS. `sync/WebParityTest.kt` grava as respostas do app em casos fixos
+  (`novelo-server/test/fixtures/web-parity.json`) e o `web-parity.test.js` de lá exige as mesmas, até o texto
+  que vai pro modelo. Mudou um desses no app: rode o `WebParityTest` e o teste de lá.
+- Testes: `SyncCryptoTest` (vetores iguais aos do JS, códigos, nomes de arquivo), `NoveloWebTest` (servidor
+  real + um computador de teste: os dois sentidos, conflito, fotos, registro que não é a linha, dose refeita,
+  parar), `WebParityTest`.
+
 ## A fila (1.78.0, 2026-11-18)
 
 Pedido do Miguel (no metrô, sem internet): depois de falar, a tela ficava no "Transcrevendo… / Organizando…" e
