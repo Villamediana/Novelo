@@ -56,6 +56,9 @@ interface Ears {
 
     /** Lets go of what is going on now (the model on the phone or the request), so a stop is quick. */
     fun stop() {}
+
+    /** True when hearing goes out on the network (the Novelo's server, her API): without one there is nothing to try. */
+    suspend fun needsNet(): Boolean = false
 }
 
 /** Text (and maybe a photo) → the model's raw answer. */
@@ -73,6 +76,9 @@ interface Thinker {
 
     /** Lets go of what is going on now (the model on the phone or the request), so a stop is quick. */
     fun stop() {}
+
+    /** True when thinking goes out on the network: without one there is nothing to try. */
+    suspend fun needsNet(): Boolean = false
 }
 
 /**
@@ -219,6 +225,9 @@ class Hearing(
         if (s.hear == Source.LOCAL && readiness(s) == null) engine.warm(model.files)
     }
 
+    /** Only the model on the phone hears without a network (what is missing in Ajustes is said as such, not as "no network"). */
+    override suspend fun needsNet(): Boolean = settings.current().let { it.hear != Source.LOCAL && readiness(it) == null }
+
     /** The Novelo and the model on the phone hear while she talks; her API hears it all when she stops. */
     override suspend fun ahead(wav: File, heard: Heard, at: Int, onPartial: (String) -> Unit): Pair<Heard, Int>? = withContext(Dispatchers.IO) {
         val s = settings.current()
@@ -297,6 +306,9 @@ class Thinking(
 
     /** What each API server took and refused, so a refusal is paid once. */
     private val asks = ApiAsks()
+
+    /** Nothing on the phone thinks (what is missing in Ajustes is said as such, not as "no network"). */
+    override suspend fun needsNet(): Boolean = readiness(settings.current()) == null
 
     override fun stop() {
         engine.cancel()

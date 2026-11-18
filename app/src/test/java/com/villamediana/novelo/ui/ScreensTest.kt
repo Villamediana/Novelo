@@ -62,7 +62,13 @@ import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
 import mockwebserver3.RecordedRequest
 import org.junit.After
+import com.villamediana.novelo.mind.Waiting
+import com.villamediana.novelo.ui.components.paper
+import androidx.compose.ui.test.swipeLeft
+import androidx.compose.ui.test.swipeRight
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import androidx.compose.foundation.layout.padding
@@ -144,6 +150,12 @@ class ScreensTest {
             }
         }
         server.start()
+        // The test's phone has a network (Robolectric starts without one: what needs the internet would wait in the line).
+        val net = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>().getSystemService(android.net.ConnectivityManager::class.java)
+        org.robolectric.Shadows.shadowOf(net).setDefaultNetworkActive(true)
+        val reaches = org.robolectric.shadows.ShadowNetworkCapabilities.newInstance()
+        org.robolectric.Shadows.shadowOf(reaches).addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        org.robolectric.Shadows.shadowOf(net).setNetworkCapabilities(net.activeNetwork, reaches)
         runBlocking {
             val s = graph.settings
             s.setApiBase(server.url("/openai/v1").toString())
@@ -172,7 +184,7 @@ class ScreensTest {
 
         // 2. Something written goes through the API (hearing is always on the phone) and comes back organized.
         graph.mind.write("Amanhã às nove eu preciso ligar pro Pedro sobre o contrato, e lembra de comprar o presente da Ana. Ah, e hoje foi um dia bom.")
-        val answer = runBlocking { withTimeout(20_000) { graph.mind.state.first { it is MindState.Answer || it is MindState.Problem } } }
+        val answer = runBlocking { withTimeout(20_000) { graph.mind.told.first { it is MindState.Answer || it is MindState.Problem } } }
         assertTrue("$answer", answer is MindState.Answer)
         answer as MindState.Answer
         assertEquals(3, answer.outcomes.size)
@@ -182,6 +194,28 @@ class ScreensTest {
         // The request carried the context: the open tasks with their ids.
         val prompt = (1..server.requestCount).map { server.takeRequest() }.first { it.url.encodedPath.endsWith("chat/completions") }.body!!.utf8()
         assertTrue(prompt.contains("#${ids["contract"]} tarefa[doing]"))
+    }
+
+    @Test
+    fun theLineSitsUnderTheButtonAndTheButtonStaysFree() {
+        val (stopped, failed) = runBlocking {
+            graph.db.captures().insert(Capture(createdAt = now - 2000, source = Capture.TEXT, transcript = "ligar pro Pedro amanhã cedo", state = Capture.STOPPED, error = "Parei. O que você disse ficou guardado.")) to
+                graph.db.captures().insert(Capture(createdAt = now - 1000, source = Capture.TEXT, transcript = "comprar o presente da Ana", state = Capture.STOPPED, error = "Parei. O que você disse ficou guardado."))
+        }
+        graph.mind.restored()
+        val nav = Nav()
+        compose.setContent { NoveloTheme(ThemeMode.LIGHT) { HomeScreen(nav, talkAbout = null, onTalkHandled = {}) } }
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Parado").fetchSemanticsNodes().size == 2 }
+        // The button is the button it always is: nothing took the screen.
+        compose.onNodeWithContentDescription("Falar").assertExists()
+        compose.onNodeWithText("ligar pro Pedro amanhã cedo", substring = true).assertExists()
+        compose.mainClock.advanceTimeBy(600)
+        shot("01b-home-line")
+        // One thrown away: it leaves the line and what was kept of it goes.
+        compose.onNodeWithTag("line-$failed").performTouchInput { swipeRight() }
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Parado").fetchSemanticsNodes().size == 1 }
+        assertNull(runBlocking { graph.db.captures().get(failed) })
+        assertNotNull(runBlocking { graph.db.captures().get(stopped) })
     }
 
     @Test
@@ -851,25 +885,65 @@ class ScreensTest {
     }
 
     @Test
-    fun theWordsShowWhileHeardNotWhileOrganizing() {
-        val state = androidx.compose.runtime.mutableStateOf(MindState.Working(7, com.villamediana.novelo.mind.Stage.HEARING, "fui correr de manhã", step = 2, of = 3))
+    fun theLineShowsWhatIsGoingWhatWaitsAndWhatStopped() {
+        fun row(id: Long, where: Waiting.Where, text: String, message: String? = null) = Waiting(id, Waiting.Kind.VOICE, text, where, message)
+        val going = androidx.compose.runtime.mutableStateOf<MindState.Working?>(MindState.Working(7, com.villamediana.novelo.mind.Stage.HEARING, "fui correr de manhã", step = 2, of = 3))
+        val line = androidx.compose.runtime.mutableStateOf(
+            listOf(
+                row(7, Waiting.Where.GOING, ""),
+                row(8, Waiting.Where.IN_LINE, "comprar pão na volta"),
+                row(9, Waiting.Where.LATER, "ligar pro Pedro", "Sem conexão agora. Guardei; vai sozinho quando a internet voltar."),
+            ),
+        )
+        var stopped = 0
+        val retried = mutableListOf<Long>()
+        val discarded = mutableListOf<Long>()
         compose.setContent {
             NoveloTheme(ThemeMode.LIGHT) {
-                androidx.compose.foundation.layout.Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
-                    com.villamediana.novelo.ui.home.WorkingText(state.value) {}
+                androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize().paper(), contentAlignment = androidx.compose.ui.Alignment.BottomCenter) {
+                    com.villamediana.novelo.ui.home.LineTray(line.value, going.value, onStop = { stopped++ }, onRetry = { retried += it }, onDiscard = { discarded += it }, onSettings = {})
                 }
             }
         }
+        // The one going: what it is doing and the words as they are heard, with its one button (a touch stops it).
         compose.onNodeWithText("Transcrevendo… parte 2 de 3").assertExists()
         compose.onNodeWithText("fui correr de manhã", substring = true).assertExists()
-        // It can be minimized or closed: it says so.
-        compose.onNodeWithText("Pode minimizar ou fechar o app", substring = true).assertExists()
+        compose.onNodeWithContentDescription("Parar").performClick()
+        assertEquals(1, stopped)
+        // The ones waiting: for their turn, or for the internet (to send again or throw away by hand too).
+        compose.onNodeWithText("Na fila").assertExists()
+        compose.onNodeWithText("Sem internet · vai sozinho quando voltar").assertExists()
+        compose.onNodeWithContentDescription("Tentar de novo").performClick()
+        compose.onNodeWithContentDescription("Descartar").performClick()
+        assertEquals(listOf(9L), retried)
+        assertEquals(listOf(9L), discarded)
         compose.mainClock.advanceTimeBy(400)
-        shot("57-working-hearing")
-        state.value = MindState.Working(7, com.villamediana.novelo.mind.Stage.THINKING, "fui correr de manhã")
+        shot("57-line")
+
+        // Organizing: only what it is doing (the words are known by then).
+        going.value = MindState.Working(7, com.villamediana.novelo.mind.Stage.THINKING, "fui correr de manhã")
+        line.value = line.value.map { if (it.id == 7L) it.copy(text = "fui correr de manhã") else it }
         compose.waitForIdle()
         compose.onNodeWithText("Organizando…").assertExists()
-        assertTrue(compose.onAllNodesWithText("fui correr de manhã", substring = true).fetchSemanticsNodes().isEmpty())
+
+        // A row swiped to the side is thrown away.
+        compose.onNodeWithTag("line-8").performTouchInput { swipeLeft() }
+        compose.waitForIdle()
+        assertEquals(listOf(9L, 8L), discarded)
+
+        // A recording nobody could hear yet (no network for the ear): told by how long it is.
+        line.value = listOf(Waiting(5, Waiting.Kind.VOICE, "", Waiting.Where.LATER, "Sem conexão agora. Guardei; vai sozinho quando a internet voltar.", durationMs = 72_000))
+        compose.waitForIdle()
+        compose.onNodeWithText("Áudio · 1:12").assertExists()
+
+        // Stopped by hand: send again · throw away.
+        line.value = listOf(row(7, Waiting.Where.STOPPED, "fui correr de manhã", "Parei. O que você disse ficou guardado."))
+        going.value = null
+        compose.waitForIdle()
+        compose.onNodeWithText("Parado").assertExists()
+        compose.onNodeWithContentDescription("Tentar de novo").performClick()
+        assertEquals(listOf(9L, 7L), retried)
+        shot("58-line-stopped")
     }
 
     @Test
@@ -896,14 +970,16 @@ class ScreensTest {
         compose.waitUntil(5_000) { compose.onAllNodesWithText("Dias da semana").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Dias da semana").performClick()
         compose.waitUntil(3_000) { compose.onAllNodesWithTag("repeat-day-1").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithTag("repeat-day-1").performClick()
-        compose.onNodeWithTag("repeat-day-3").performClick()
+        // Two days that aren't today's (today's comes chosen: a tap on it would take it out).
+        val (a, b) = (1..7).filter { it != LocalDate.now(zone).dayOfWeek.value }.take(2)
+        compose.onNodeWithTag("repeat-day-$a").performClick()
+        compose.onNodeWithTag("repeat-day-$b").performClick()
         compose.mainClock.advanceTimeBy(500)
         shot("58-reminder-repeat")
         compose.onNodeWithTag("reminder-save").performClick()
         val rule = runBlocking { withTimeout(5_000) { var r: com.villamediana.novelo.remind.Repeat? = null; while (r == null) { r = com.villamediana.novelo.remind.Repeat.read(graph.db.entries().get(id)!!.repeat); if (r == null) kotlinx.coroutines.delay(20) }; r } }
         assertEquals(com.villamediana.novelo.remind.Repeat.WEEK, rule.every)
-        assertTrue("${rule.days}", 1 in rule.days && 3 in rule.days)
+        assertTrue("${rule.days}", a in rule.days && b in rule.days)
         assertTrue(runBlocking { graph.db.entries().get(id)!!.remindAt!! } > System.currentTimeMillis())
     }
 

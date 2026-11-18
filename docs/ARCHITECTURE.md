@@ -19,10 +19,11 @@ Orb (segurar / tocar / arrastar pra cima)
       Keeper.apply        cria/atualiza entries (notícia nova entra no texto do item), tópicos (entities/entry_topics), links; progress só guarda mudança de status
       Reminders.sync      AlarmManager exato (USE_EXACT_ALARM), religado no boot/atualização
   → MindState.Answer (resposta + cartões do que foi criado/mudado/mostrado)
+  (enquanto isso o botão está livre: o que vai e o que espera aparece na fila embaixo dele)
 ```
 
 Nada se perde: sem rede ou sem Ajustes, a captura fica `recorded`/`failed` com o áudio, e volta à
-fila quando o app abre, quando os Ajustes mudam ou no "N coisas esperando · tentar agora".
+fila quando o app abre, quando os Ajustes mudam, quando a rede volta ou pelo ↻ da linha dela (ver "A fila").
 O áudio é apagado depois que a captura vai até o fim.
 
 O modelo do celular recebe a vez dele já com `<think></think>` (é o que o template do LFM3 escreve com o pensar
@@ -47,6 +48,42 @@ trabalho e a fila segue na hora; a captura fica `stopped` (com o texto), só vol
 Se a API recusa o pedido (400/415/422), `Thinking` tenta de novo sem a imagem e depois sem
 `response_format`. Lembrete que venceu com o celular desligado toca quando ele liga; tarefa feita
 perde o lembrete.
+
+## A fila (1.78.0, 2026-11-18)
+
+Pedido do Miguel (no metrô, sem internet): depois de falar, a tela ficava no "Transcrevendo… / Organizando…" e
+só dava pra gravar uma coisa e esperar. Agora o que ela diz **entra numa fila embaixo do botão** e o botão fica
+livre na hora; as coisas vão uma por uma e, sem internet, esperam e vão sozinhas quando ela volta.
+
+- **O trabalho não ocupa mais a tela.** `Mind.state` é só o que fica em volta do botão (nada, microfone
+  aberto, resposta, um aviso sem captura). O andamento é da fila: `Mind.line` (`Waiting`: o que ainda não foi
+  até o fim, a mais antiga primeiro) e `Mind.going` (em que etapa está a que vai agora, com as palavras
+  ouvidas). `Mind.told` leva tudo o que é dito no caminho (trabalho, resposta, o que não deu) — é o que o aviso
+  de "ficou pronto/ficou esperando" (`WorkDone`) e os testes leem.
+- **Onde cada uma está** (`Waiting.Where`): `GOING` (vai agora), `IN_LINE` (espera a vez), `LATER` (sem rede
+  ou servidor cheio: vai sozinha), `STOPPED` (parada à mão: só volta à mão), `FAILED` (não deu: reenviar ou
+  descartar; o que falta em Ajustes vira o ícone de Ajustes na linha).
+- **Tela** (`ui/home/Line.kt`, `LineTray`/`LineRow`): bloco de linhas acima da barra de baixo (até ~3 à vista,
+  depois rola). A que vai tem **um botão só**: o fio girando em volta do ■, um toque para (`stopWork`). Parada
+  ou que não deu: ↻ reenviar e lixeira. **Deslizar a linha pro lado descarta** (o gesto é da linha: a tela não
+  troca). A resposta continua aparecendo em volta do botão; se chega com o microfone aberto, espera ela
+  terminar de falar (`missed`). Saíram o chip "N coisas esperando" e o "Pode minimizar ou fechar o app".
+- **Sem internet, na hora** (`mind/Net.kt`, `Mind(online = …)`): com o celular sem rede nenhuma, o que precisa
+  dela nem é tentado (`Ears.needsNet`/`Thinker.needsNet` → `Offline`): a captura vira `LATER` com "Sem
+  internet · vai sozinho quando voltar" em vez de um pedido pendurado até desistir. Quem ouve no celular ouve
+  mesmo assim (a linha já mostra as palavras) e só o organizar espera. Rede que existe mas não leva a lugar
+  nenhum ainda é descoberta tentando (o "validated" do Android não serve pra dizer que não: falha em rede que
+  funciona); pra isso a conexão desiste em 10 s (era 20).
+- **Volta sozinha:** com o app aberto, `Net.whenBack` (rede validada de novo, 2 s depois) → `Mind.networkBack()`
+  manda só as que esperavam rede, na ordem em que foram ditas. Com o app fechado segue o `WhenOnline`
+  (WorkManager), como antes.
+- **Ao parar de falar** a captura é gravada no banco na hora (aparece na fila) e só depois termina o pedaço
+  que estava sendo ouvido; com o ouvido na rede esse pedaço espera no máximo 6 s (`AHEAD_WAIT_MS`), e sem rede
+  nem espera — antes isso segurava a tela.
+- Descartar a que está indo para primeiro o trabalho (`discard` → `stopWork`).
+- Testes: `KeeperAndMindTest` (a fila com o botão livre, sem rede espera na hora e volta na ordem, ouvido na
+  rede não é tentado, descartar a que vai, resposta que espera ela parar de falar) e `ScreensTest`
+  (`57-line`, `58-line-stopped`, `01b-home-line`). O celular dos testes precisa "ter rede" (o Robolectric nasce sem).
 
 ## Visual
 

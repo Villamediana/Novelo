@@ -43,7 +43,7 @@ class AppGraph(context: Context) {
 
     val http: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(20, TimeUnit.SECONDS)
+            .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(180, TimeUnit.SECONDS)
             .writeTimeout(180, TimeUnit.SECONDS)
             .callTimeout(10, TimeUnit.MINUTES)
@@ -118,6 +118,9 @@ class AppGraph(context: Context) {
     /** The open tasks with no category go into one when the app starts. */
     val organizer: com.villamediana.novelo.mind.Organizer by lazy { com.villamediana.novelo.mind.Organizer(db, thinking) }
 
+    /** Whether there is a network at all, and when one comes back (what waited in the line goes by itself). */
+    val net: com.villamediana.novelo.mind.Net by lazy { com.villamediana.novelo.mind.Net(appContext, scope) }
+
     val mind: Mind by lazy {
         Mind(
             scope = scope,
@@ -131,6 +134,7 @@ class AppGraph(context: Context) {
             mic = AndroidMicHolder(appContext),
             dir = captures,
             offline = { WhenOnline.schedule(appContext) },
+            online = net::online,
             peek = com.villamediana.novelo.mind.PhonePeek(appContext, MlKitPhotoReader(appContext)),
             // Who sees: the Novelo, Omni on the phone, or her API (Ajustes › Inteligência › Quem vê).
             about = com.villamediana.novelo.mind.Seeing(settings, api, com.villamediana.novelo.mind.OmniAbout(engine, localModel), server),

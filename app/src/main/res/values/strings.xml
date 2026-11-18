@@ -44,8 +44,6 @@
     <string name="orb_talk">Falar</string>
     <string name="write">Escrever</string>
     <string name="settings">Ajustes</string>
-    <string name="pending_one">1 coisa esperando · tentar agora</string>
-    <string name="pending_many">%1$d coisas esperando · tentar agora</string>
     <string name="staged_one">Fale ou escreva o que fazer com ela, ou envie assim</string>
     <string name="staged_many">Fale ou escreva o que fazer com elas, ou envie assim</string>
     <string name="photo_take_out">Tirar a foto</string>
@@ -60,6 +58,14 @@
     <string name="listening_tap_keep">Ouvindo. Toque pra guardar.</string>
     <string name="release_to_keep">Solte pra guardar · arraste pra cima pra descartar</string>
     <string name="cancel">Cancelar</string>
+    <string name="line_going">Enviando…</string>
+    <string name="line_in_line">Na fila</string>
+    <string name="line_offline">Sem internet · vai sozinho quando voltar</string>
+    <string name="line_soon">Vai sozinho daqui a pouco</string>
+    <string name="line_stopped">Parado</string>
+    <string name="line_failed">Não foi</string>
+    <string name="line_audio">Áudio · %1$s</string>
+    <string name="line_photo">Foto</string>
     <string name="stage_hearing">Transcrevendo…</string>
     <string name="stage_reading">Lendo a foto…</string>
     <string name="stage_thinking">Organizando…</string>
@@ -377,7 +383,6 @@
     <string name="channel_done">Pronto</string>
     <string name="done_kept">Guardei</string>
     <string name="done_waiting">Ficou esperando</string>
-    <string name="work_away">Pode minimizar ou fechar o app: o Novelo continua e te avisa quando terminar.</string>
     <string name="repeat_daily_at">todo dia às %1$s</string>
     <string name="repeat_days_at">%1$s às %2$s</string>
     <string name="repeat_monthly_at">todo mês no dia %1$d às %2$s</string>
