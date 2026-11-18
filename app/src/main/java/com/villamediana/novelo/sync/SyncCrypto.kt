@@ -53,7 +53,7 @@ class SyncCrypto(master: ByteArray) {
 
     companion object {
         private val SALT = "novelo-sync-v1".toByteArray()
-        private val LINK_INFO = "novelo-link-v1".toByteArray()
+        private val LINK_INFO = "novelo-link-v2".toByteArray()
         private const val IV = 12
         private val random = SecureRandom()
 
@@ -116,16 +116,20 @@ class SyncCrypto(master: ByteArray) {
         /**
          * The answer to a computer's code: the space ([space], its key [master], whose phone it is) encrypted
          * so only the computer whose public key ([webPub], base64url) is in the code opens it. A key pair
-         * made only for this answer; the secret is HKDF(ECDH, salt = the code's id, "novelo-link-v1").
+         * made only for this answer; the secret is HKDF(ECDH ‖ the code's [secret], salt = the code's id,
+         * "novelo-link-v2"). The code's secret is only on the computer's screen (never on the server): only
+         * the computer opens the answer, and it knows only a phone that read its screen could have made it.
          */
-        fun wrapLink(webPub: String, linkId: String, space: String, master: ByteArray, owner: String): Wrapped {
+        fun wrapLink(webPub: String, linkId: String, secret: String, space: String, master: ByteArray, owner: String): Wrapped {
+            val extra = unb64u(secret)
+            require(extra.size == 16) { "segredo do código" }
             val peer = publicKey(unb64u(webPub))
             val mine = KeyPairGenerator.getInstance("EC").apply { initialize(ECGenParameterSpec("secp256r1"), random) }.generateKeyPair()
             val shared = KeyAgreement.getInstance("ECDH").apply {
                 init(mine.private)
                 doPhase(peer, true)
             }.generateSecret()
-            val lock = hkdf(shared, linkId.toByteArray(), LINK_INFO, 32)
+            val lock = hkdf(shared + extra, linkId.toByteArray(), LINK_INFO, 32)
             val iv = ByteArray(IV).also(random::nextBytes)
             val text = kotlinx.serialization.json.buildJsonObject {
                 put("space", kotlinx.serialization.json.JsonPrimitive(space))

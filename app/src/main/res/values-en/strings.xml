@@ -568,7 +568,7 @@
     <string name="web_scan_hint">Point at the code on novelo.simplyonegoal.com/web</string>
     <string name="web_scan_no_camera">To scan the code, Novelo needs the camera.</string>
     <string name="web_link_ask">Link this computer?</string>
-    <string name="web_link_ask_hint">It will see and change everything in Novelo, together with the phone.</string>
+    <string name="web_link_ask_hint">It will see and change everything in Novelo, together with the phone. Only link a code you opened yourself on your own computer: no one from Novelo will ever ask for this.</string>
     <string name="web_link_do">Link</string>
     <string name="web_linking">Linking…</string>
     <string name="web_linked">Done</string>

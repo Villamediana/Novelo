@@ -170,16 +170,24 @@ class SyncEngine(
         for (c in changes) {
             val st = dao.record(c.k)
             if (c.d == null) {
+                // One already known (this phone's own deletion coming back, or one seen before): nothing
+                // to do — the row may have been made again here since, and goes up over it.
+                if (st != null && (st.hash == GONE || st.seq >= c.s) && st.pending == null) {
+                    if (st.seq < c.s) dao.put(st.copy(seq = c.s))
+                    continue
+                }
                 if (st != null) {
                     deleteRow(st.tbl, st.rid)
                     if (st.tbl == "captures") st.rid.toLongOrNull()?.let { dao.dropFiles(it) }
-                    dao.drop(c.k)
+                    // Known as gone (at this number): the same row made again here goes up over it.
+                    dao.put(SyncRecord(c.k, st.tbl, st.rid, c.s, GONE, ""))
                     note(st.tbl, st.rid, entries) { meds = true }
                 }
                 continue
             }
             if (st != null && st.seq >= c.s && st.pending == null) continue // ours, or already here
             val rec = runCatching { Json.parseToJsonElement(crypto.open(c.k, c.d)).jsonObject }.getOrNull() ?: continue
+            if (!isItself(crypto, c.k, rec)) continue
             val r = take(crypto, c.k, c.s, rec, st)
             if (r != null) {
                 note(r.first, r.second, entries) { meds = true }
@@ -253,7 +261,7 @@ class SyncEngine(
                 for (o in chunk) {
                     val r = results[o.item.k] ?: continue
                     if (r.ok) {
-                        if (o.row == null) dao.drop(o.item.k)
+                        if (o.row == null) dao.put(SyncRecord(o.item.k, o.table.name, o.rid, r.s, GONE, ""))
                         else dao.put(SyncRecord(o.item.k, o.table.name, o.rid, r.s, sha(o.row), o.row))
                         continue
                     }
@@ -268,10 +276,16 @@ class SyncEngine(
     private suspend fun conflict(crypto: SyncCrypto, o: Outgoing, r: SyncTransport.Pushed) {
         val st = dao.record(o.item.k)
         if (r.d == null) {
-            // Deleted there: it goes here too (deleting wins over changing).
+            // Gone there, and here it is a row made again after that (it was known as gone, or never
+            // known: a dose ticked again, an item brought back with "Desfazer"): it goes up over the gap.
+            if (o.row != null && (st == null || st.hash == GONE)) {
+                dao.put(SyncRecord(o.item.k, o.table.name, o.rid, r.s, GONE, ""))
+                return
+            }
+            // Deleted there while changed here: it goes here too (deleting wins over changing).
             if (o.row != null) deleteRow(o.table.name, o.rid)
             if (o.table.name == "captures") o.rid.toLongOrNull()?.let { dao.dropFiles(it) }
-            dao.drop(o.item.k)
+            dao.put(SyncRecord(o.item.k, o.table.name, o.rid, r.s, GONE, ""))
             return
         }
         if (o.row == null) {
@@ -312,7 +326,7 @@ class SyncEngine(
                 out += Outgoing(table, rid, text, SyncTransport.Push(k, st?.seq ?: 0, crypto.seal(k, rec.toString())))
             }
             for ((rid, st) in states) {
-                if (rid in rows || st.pending != null) continue
+                if (rid in rows || st.pending != null || st.hash == GONE) continue
                 out += Outgoing(table, rid, null, SyncTransport.Push(st.k, st.seq, null))
             }
         }
@@ -413,12 +427,27 @@ class SyncEngine(
         return JsonObject(row + ("media" to m))
     }
 
+    /**
+     * A record is the row it says it is: of a table here, its name the one of that row (HMAC of the
+     * space's key), the row's own key the same id. Otherwise it could land on another row, or two
+     * records fight over one — whoever wrote it.
+     */
+    private fun isItself(crypto: SyncCrypto, k: String, rec: JsonObject): Boolean {
+        val t = (rec["t"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return false
+        val rid = (rec["id"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return false
+        val table = SyncTables.byName[t] ?: return false
+        val row = rec["r"] as? JsonObject ?: return false
+        val own = table.pk.map { c -> (row[c] as? JsonPrimitive)?.takeIf { !it.isString }?.longOrNull ?: return false }.joinToString(":")
+        return own == rid && crypto.recordKey(t, rid) == k
+    }
+
     /** The files a record says a capture has: the ones not here yet are fetched later. */
     private suspend fun takeMedia(captureId: Long, m: JsonObject?) {
         val mine = dao.files(captureId).associateBy { it.kind }
         for ((kind, v) in m.orEmpty()) {
+            if (kind !in MEDIA_KINDS) continue
             val o = v as? JsonObject ?: continue
-            val id = o["id"]?.jsonPrimitive?.contentOrNull ?: continue
+            val id = o["id"]?.jsonPrimitive?.contentOrNull?.takeIf { BLOB_ID.matches(it) } ?: continue
             val old = mine[kind]
             if (old?.blob == id) continue
             dao.putFile(SyncFile("$captureId:$kind", captureId, kind, id, o["size"]?.jsonPrimitive?.longOrNull ?: 0, o["mime"]?.jsonPrimitive?.contentOrNull, path = null, up = true))
@@ -551,6 +580,12 @@ class SyncEngine(
     companion object {
         /** Files up to this go over mobile data too; bigger ones wait for Wi-Fi. */
         const val SMALL = 1_500_000L
+
+        private val MEDIA_KINDS = setOf("image", "thumb", "audio", "file")
+
+        /** The state of a record deleted (here or there) at its number: a row made again goes over it. */
+        const val GONE = "-"
+        private val BLOB_ID = Regex("^[A-Za-z0-9_-]{22,64}$")
 
         /** The row as text, its fields sorted: what is hashed and kept as the base of a merge. */
         fun canon(row: JsonObject): String = JsonObject(row.toSortedMap()).toString()

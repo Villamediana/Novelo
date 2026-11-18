@@ -124,10 +124,10 @@ class NoveloWebTest {
 
     /** The computer shows its code; the phone reads it and links it. */
     private fun link() = runBlocking {
-        val code = NoveloWeb.code(peer("link", url, "Chrome no Windows")["code"]!!.jsonPrimitive.content.replace("http://", "https://"))
+        val code = NoveloWeb.code(peer("link", url, "Chrome no Windows")["code"]!!.jsonPrimitive.content.replace("http://", "https://"), url.replace("http://", "https://"))
         assertNotNull(code)
         val (spaceId, master) = engine.start()
-        transport.approve(code!!.linkId, SyncCrypto.wrapLink(code.webKey, code.linkId, spaceId, master, "Pixel da Ana"), "Pixel da Ana")
+        transport.approve(code!!.linkId, SyncCrypto.wrapLink(code.webKey, code.linkId, code.secret, spaceId, master, "Pixel da Ana"), "Pixel da Ana")
         val linked = peer("wait")
         assertEquals(spaceId, linked["space"]!!.jsonPrimitive.content)
         assertEquals("Pixel da Ana", linked["owner"]!!.jsonPrimitive.content)
@@ -208,6 +208,37 @@ class NoveloWebTest {
         engine.moveFiles()
         val there2 = db.captures().get(capId)!!
         assertTrue(java.util.Arrays.equals(webPhoto, File(there2.imagePath!!).readBytes()))
+
+        // A record that isn't the row it names (its name one row, its id another) is left alone:
+        // it would land on the task written above. Nor do a file kind or a file id that aren't ones come down.
+        peer("put", """{"t":"entries","id":"${webId + 1}","r":{"id":${webId + 2},"kind":"task","title":"Trocado","status":"todo","createdAt":$now,"updatedAt":${now + 99}}}""")
+        val capBad = (1L shl 46) + 100
+        peer("put", """{"t":"captures","id":"$capBad","r":{"id":$capBad,"createdAt":$now,"source":"file","state":"done","fileName":"../../shared_prefs/x.xml","media":{"../x":{"id":"$blob","size":10},"file":{"id":"../../etc","size":10}}}}""")
+        engine.sync()
+        engine.moveFiles()
+        assertEquals("Escrito no computador", db.entries().get(webId)!!.title)
+        assertNull(db.entries().get(webId + 1))
+        assertNull(db.entries().get(webId + 2))
+        assertTrue(db.sync().files(capBad).isEmpty())
+
+        // A dose unticked and ticked again — the same row, made again after its deletion went up — stays
+        // (it isn't taken for "deleted there" and deleted again here).
+        db.meds().untake(med, now)
+        engine.sync()
+        assertNull(rec("med_taken", "$med:$now"))
+        db.meds().take(MedTaken(med, now, now + 1))
+        engine.sync()
+        engine.sync()
+        assertNotNull(rec("med_taken", "$med:$now"))
+        assertEquals(1, db.meds().takenBetween(now, now).size)
+        // The same from the computer's side: it unticks, the phone too; it ticks again, the phone too.
+        peer("delete", "med_taken", "$med:$now")
+        engine.sync()
+        assertEquals(0, db.meds().takenBetween(now, now).size)
+        db.meds().take(MedTaken(med, now, now + 2))
+        engine.sync()
+        assertEquals(1, db.meds().takenBetween(now, now).size)
+        assertNotNull(rec("med_taken", "$med:$now"))
 
         // The computer deletes the note; the phone too.
         peer("delete", "entries", note.toString())

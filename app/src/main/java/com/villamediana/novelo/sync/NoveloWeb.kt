@@ -121,8 +121,8 @@ class NoveloWeb(
 
     // ------------------------------------------------------------------ linking
 
-    /** What a computer's code says: its link id and its public key. Null when it isn't one. */
-    data class Code(val linkId: String, val webKey: String)
+    /** What a computer's code says: its link id, its public key and the code's secret. */
+    data class Code(val linkId: String, val webKey: String, val secret: String)
 
     /**
      * Links the computer whose code was read: the space starts (the first time), its key goes to the
@@ -130,7 +130,7 @@ class NoveloWeb(
      */
     suspend fun link(code: Code): String {
         val (spaceId, master) = engine.start()
-        val wrapped = SyncCrypto.wrapLink(code.webKey, code.linkId, spaceId, master, owner())
+        val wrapped = SyncCrypto.wrapLink(code.webKey, code.linkId, code.secret, spaceId, master, owner())
         val name = transport.approve(code.linkId, wrapped, owner())
         watch()
         scope.launch {
@@ -166,14 +166,20 @@ class NoveloWeb(
 
     companion object {
         const val WORK = "novelo-web-sync"
-        private val CODE = Regex("""^https://[A-Za-z0-9.-]+(?::\d+)?/web/link/?#([A-Za-z0-9_-]{22,64})\.([A-Za-z0-9_-]{80,100})$""")
+        private val CODE = Regex("""^https://([A-Za-z0-9.-]+(?::\d+)?)/web/link/?#([A-Za-z0-9_-]{22,64})\.([A-Za-z0-9_-]{80,100})\.([A-Za-z0-9_-]{22})$""")
 
-        /** The address in a computer's QR code (also what opens the app from the phone's camera). */
-        fun code(text: String?): Code? {
+        /**
+         * The address in a computer's QR code (also what opens the app from the phone's camera): only one
+         * of this phone's own server ([server], its address), with a link, a key and a secret that are one.
+         */
+        fun code(text: String?, server: String = com.villamediana.novelo.server.ServerAddress.base): Code? {
             val m = CODE.matchEntire(text?.trim() ?: return null) ?: return null
-            val key = m.groupValues[2]
+            val host = runCatching { java.net.URI(server.trim()).let { u -> u.host + if (u.port > 0) ":${u.port}" else "" } }.getOrNull()
+            if (host.isNullOrEmpty() || !m.groupValues[1].equals(host, ignoreCase = true)) return null
+            val key = m.groupValues[3]
             if (runCatching { SyncCrypto.unb64u(key) }.getOrNull()?.size != 65) return null
-            return Code(m.groupValues[1], key)
+            if (runCatching { SyncCrypto.unb64u(m.groupValues[4]) }.getOrNull()?.size != 16) return null
+            return Code(m.groupValues[2], key, m.groupValues[4])
         }
 
         /** Every 15 minutes with a network: what came while the app was closed (a reminder set on the computer rings). */
@@ -291,6 +297,14 @@ class PhoneMedia(private val context: Context, private val captures: File) : Syn
     override fun place(captureId: Long, kind: String, mime: String?, name: String?, at: Long): File = when (kind) {
         "image" -> File(captures, "photo-$at-c$captureId.${if (mime == "image/png") "png" else "jpg"}")
         "audio" -> File(captures, "voice-$at-c$captureId.wav")
-        else -> File(File(captures, "files/$at-c$captureId"), (name ?: "arquivo").replace('/', '-').filter { !it.isISOControl() }.take(120).ifEmpty { "arquivo" })
+        else -> File(File(captures, "files/$at-c$captureId"), safeName(name))
+    }
+
+    companion object {
+        /** A file's name from elsewhere as a name here: one name (no folders, no "..", no control characters), never empty. */
+        fun safeName(name: String?): String {
+            val n = (name ?: "").replace('/', '-').replace('\\', '-').filter { !it.isISOControl() && it.code !in 0x202A..0x202E && it.code !in 0x2066..0x2069 }.trim().take(120)
+            return if (n.isEmpty() || n.all { it == '.' }) "arquivo" else n
+        }
     }
 }

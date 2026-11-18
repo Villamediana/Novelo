@@ -95,7 +95,8 @@ interface CaptureDao {
 
     /** The last capture that went all the way through before [id] (the conversation's previous turn). */
     // (What was sent along with something said is part of that, not a turn of its own.)
-    @Query("SELECT * FROM captures WHERE state = 'done' AND id != :id AND partOf IS NULL ORDER BY id DESC LIMIT 1")
+    // By when it was said, not by id: one written on the computer has a far higher id (Novelo Web).
+    @Query("SELECT * FROM captures WHERE state = 'done' AND id != :id AND partOf IS NULL ORDER BY createdAt DESC, id DESC LIMIT 1")
     suspend fun lastDone(id: Long): Capture?
 
     /** The photos sent together with capture [id], in the order she took them. */

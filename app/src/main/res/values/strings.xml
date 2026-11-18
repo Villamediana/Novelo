@@ -568,7 +568,7 @@
     <string name="web_scan_hint">Aponte para o código em novelo.simplyonegoal.com/web</string>
     <string name="web_scan_no_camera">Pra ler o código, o Novelo precisa da câmera.</string>
     <string name="web_link_ask">Ligar este computador?</string>
-    <string name="web_link_ask_hint">Ele vai ver e mudar tudo o que está no Novelo, junto com o celular.</string>
+    <string name="web_link_ask_hint">Ele vai ver e mudar tudo o que está no Novelo, junto com o celular. Só ligue um código que você mesmo abriu no seu computador: ninguém do Novelo pede isso.</string>
     <string name="web_link_do">Ligar</string>
     <string name="web_linking">Ligando…</string>
     <string name="web_linked">Pronto</string>

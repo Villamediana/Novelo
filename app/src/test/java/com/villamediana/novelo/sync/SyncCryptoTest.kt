@@ -49,12 +49,28 @@ class SyncCryptoTest {
 
     @Test fun aComputersCodeIsReadOnlyWhenItIsOne() {
         val key = SyncCrypto.b64u(byteArrayOf(4) + ByteArray(64) { 1 })
-        val code = NoveloWeb.code("https://novelo.simplyonegoal.com/web/link#abcdefghijklmnopqrstuv.$key")
+        val secret = SyncCrypto.b64u(ByteArray(16) { 7 })
+        val ours = "https://novelo.simplyonegoal.com"
+        val code = NoveloWeb.code("$ours/web/link#abcdefghijklmnopqrstuv.$key.$secret", ours)
         assertEquals("abcdefghijklmnopqrstuv", code!!.linkId)
         assertEquals(key, code.webKey)
-        assertEquals(null, NoveloWeb.code("https://novelo.simplyonegoal.com/web/link#abc.$key"))
-        assertEquals(null, NoveloWeb.code("https://novelo.simplyonegoal.com/web/link#abcdefghijklmnopqrstuv.AAAA"))
-        assertEquals(null, NoveloWeb.code("http://evil/web/link#abcdefghijklmnopqrstuv.$key"))
-        assertEquals(null, NoveloWeb.code(null))
+        assertEquals(secret, code.secret)
+        assertEquals(null, NoveloWeb.code("$ours/web/link#abc.$key.$secret", ours))
+        assertEquals(null, NoveloWeb.code("$ours/web/link#abcdefghijklmnopqrstuv.AAAA.$secret", ours))
+        // Without the code's secret (an older or made-up code): not one.
+        assertEquals(null, NoveloWeb.code("$ours/web/link#abcdefghijklmnopqrstuv.$key", ours))
+        // Only a code of this phone's own server.
+        assertEquals(null, NoveloWeb.code("https://evil.example/web/link#abcdefghijklmnopqrstuv.$key.$secret", ours))
+        assertEquals(null, NoveloWeb.code("https://novelo.simplyonegoal.com.evil.example/web/link#abcdefghijklmnopqrstuv.$key.$secret", ours))
+        assertEquals(null, NoveloWeb.code("http://novelo.simplyonegoal.com/web/link#abcdefghijklmnopqrstuv.$key.$secret", ours))
+        assertEquals(null, NoveloWeb.code(null, ours))
+    }
+
+    @Test fun aFileNameFromElsewhereStaysOneName() {
+        assertEquals("..-..-etc-passwd", PhoneMedia.safeName("../../etc/passwd"))
+        assertEquals("arquivo", PhoneMedia.safeName(".."))
+        assertEquals("arquivo", PhoneMedia.safeName(null))
+        assertEquals("fdp.exe", PhoneMedia.safeName("f\u202Edp.exe"))
+        assertEquals("a-b.pdf", PhoneMedia.safeName("a\\b.pdf"))
     }
 }
