@@ -61,6 +61,8 @@ fun NoveloRoot(ask: Ask?, onAskHandled: () -> Unit) {
             val shown = com.villamediana.novelo.ui.library.TabOrder.visible(graph.settings.current())
             nav.home(); nav.go(Screen.Library(if (Filter.TODAY in shown) Filter.TODAY else Filter.MEDS)); onAskHandled()
         }
+        // The computer's code, read by the phone's own camera.
+        is Ask.LinkComputer -> LaunchedEffect(ask) { nav.home(); nav.go(Screen.Link(ask.code)); onAskHandled() }
         null -> Unit
     }
 
@@ -97,6 +99,7 @@ fun NoveloRoot(ask: Ask?, onAskHandled: () -> Unit) {
                 is Screen.Med -> com.villamediana.novelo.ui.meds.MedScreen(nav, screen.id)
                 is Screen.Settings -> SettingsScreen(nav, openAi = screen.ai)
                 Screen.Camera -> CameraScreen(nav)
+                is Screen.Link -> com.villamediana.novelo.ui.link.LinkScreen(nav, screen.code)
             }
         }
         UpdateHost()

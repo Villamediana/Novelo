@@ -15,6 +15,8 @@ sealed interface Screen {
     /** [ai]: opened on Inteligência (from the main screen, when something there is missing). */
     data class Settings(val ai: Boolean = false) : Screen
     data object Camera : Screen
+    /** Linking a computer (Novelo Web): reading its code, or the code read by the phone's own camera. */
+    data class Link(val code: com.villamediana.novelo.sync.NoveloWeb.Code? = null) : Screen
 }
 
 /** A small back stack: the main screen at the bottom, always. */

@@ -205,6 +205,8 @@ dependencies {
     implementation(libs.camera.lifecycle)
     implementation(libs.camera.view)
     implementation(libs.mlkit.text)
+    // Reading the Novelo on the computer's code (on the phone, no network).
+    implementation(libs.mlkit.barcode)
     implementation(libs.exif)
 
     testImplementation(libs.junit)
