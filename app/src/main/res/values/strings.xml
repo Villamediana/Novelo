@@ -540,4 +540,37 @@
     <string name="novelo_quota">O limite de hoje foi atingido. Guardei; amanhã continua.</string>
     <string name="novelo_later">A inteligência do Novelo não respondeu agora. Guardei; tente de novo em instantes.</string>
     <string name="device_code">aparelho %1$s</string>
+    <!-- Novelo Web: o computador -->
+    <string name="web_title">Computador</string>
+    <string name="web_off">Escreva no computador também</string>
+    <string name="web_on">Ligado</string>
+    <string name="web_sending">Enviando %1$d arquivos</string>
+    <string name="web_one">1 computador ligado</string>
+    <string name="web_many">%1$d computadores ligados</string>
+    <string name="web_about">No computador o Novelo é pra escrever. Abra novelo.simplyonegoal.com/web no computador e leia o código que aparece. Tudo fica junto com o celular, cifrado aqui: o servidor guarda só o que não consegue ler.</string>
+    <string name="web_link_one">Ligar um computador</string>
+    <string name="web_link_one_hint">Leia o código que aparece na tela dele</string>
+    <string name="web_computer">Computador</string>
+    <string name="web_seen">Visto %1$s</string>
+    <string name="web_unlink">Desligar este computador</string>
+    <string name="web_syncing">Sincronizando…</string>
+    <string name="web_sync_failed">Não deu pra sincronizar agora. Tento de novo sozinho.</string>
+    <string name="web_files_waiting">%1$d arquivos esperando o Wi-Fi pra ir</string>
+    <string name="web_synced">Em dia · %1$s</string>
+    <string name="web_stop">Parar e apagar do servidor</string>
+    <string name="web_stop_sure">Toque de novo pra parar</string>
+    <string name="web_stop_hint">Os computadores são desligados e a cópia cifrada sai do servidor. No celular nada muda.</string>
+    <string name="web_code_expired">Esse código expirou. Recarregue a página no computador e leia o novo.</string>
+    <string name="web_too_many">Computadores demais ligados. Desligue um em Ajustes › Computador.</string>
+    <string name="web_offline">Sem internet agora. Tente de novo quando voltar.</string>
+    <string name="web_failed">Não deu pra ligar o computador. Tente de novo.</string>
+    <string name="web_scan_title">Ligar um computador</string>
+    <string name="web_scan_hint">Aponte para o código em novelo.simplyonegoal.com/web</string>
+    <string name="web_scan_no_camera">Pra ler o código, o Novelo precisa da câmera.</string>
+    <string name="web_link_ask">Ligar este computador?</string>
+    <string name="web_link_ask_hint">Ele vai ver e mudar tudo o que está no Novelo, junto com o celular. Só ligue um código que você mesmo abriu no seu computador: ninguém do Novelo pede isso.</string>
+    <string name="web_link_do">Ligar</string>
+    <string name="web_linking">Ligando…</string>
+    <string name="web_linked">Pronto</string>
+    <string name="web_linked_hint">O Novelo está aberto em %1$s. Pode escrever lá.</string>
 </resources>

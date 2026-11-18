@@ -540,4 +540,37 @@
     <string name="novelo_quota">Se alcanzó el límite de hoy. Lo guardé; mañana sigue.</string>
     <string name="novelo_later">La inteligencia del Novelo no respondió ahora. Lo guardé; intenta de nuevo en un momento.</string>
     <string name="device_code">dispositivo %1$s</string>
+    <!-- Novelo Web: o computador -->
+    <string name="web_title">Computadora</string>
+    <string name="web_off">Escribe también en la computadora</string>
+    <string name="web_on">Conectado</string>
+    <string name="web_sending">Enviando %1$d archivos</string>
+    <string name="web_one">1 computadora conectada</string>
+    <string name="web_many">%1$d computadoras conectadas</string>
+    <string name="web_about">En la computadora el Novelo es para escribir. Abre novelo.simplyonegoal.com/web en la computadora y lee el código que aparece. Todo queda junto con el celular, cifrado aquí: el servidor guarda solo lo que no puede leer.</string>
+    <string name="web_link_one">Conectar una computadora</string>
+    <string name="web_link_one_hint">Lee el código que aparece en su pantalla</string>
+    <string name="web_computer">Computadora</string>
+    <string name="web_seen">Vista %1$s</string>
+    <string name="web_unlink">Desconectar esta computadora</string>
+    <string name="web_syncing">Sincronizando…</string>
+    <string name="web_sync_failed">No se pudo sincronizar ahora. Lo intento de nuevo solo.</string>
+    <string name="web_files_waiting">%1$d archivos esperando el Wi-Fi para ir</string>
+    <string name="web_synced">Al día · %1$s</string>
+    <string name="web_stop">Parar y borrar del servidor</string>
+    <string name="web_stop_sure">Toca de nuevo para parar</string>
+    <string name="web_stop_hint">Las computadoras se desconectan y la copia cifrada sale del servidor. En el celular no cambia nada.</string>
+    <string name="web_code_expired">Ese código venció. Recarga la página en la computadora y lee el nuevo.</string>
+    <string name="web_too_many">Demasiadas computadoras conectadas. Desconecta una en Ajustes › Computadora.</string>
+    <string name="web_offline">Sin internet ahora. Inténtalo de nuevo cuando vuelva.</string>
+    <string name="web_failed">No se pudo conectar la computadora. Inténtalo de nuevo.</string>
+    <string name="web_scan_title">Conectar una computadora</string>
+    <string name="web_scan_hint">Apunta al código en novelo.simplyonegoal.com/web</string>
+    <string name="web_scan_no_camera">Para leer el código, el Novelo necesita la cámara.</string>
+    <string name="web_link_ask">¿Conectar esta computadora?</string>
+    <string name="web_link_ask_hint">Va a ver y cambiar todo lo que está en el Novelo, junto con el celular. Conecta solo un código que tú mismo abriste en tu computadora: nadie del Novelo te lo pide.</string>
+    <string name="web_link_do">Conectar</string>
+    <string name="web_linking">Conectando…</string>
+    <string name="web_linked">Listo</string>
+    <string name="web_linked_hint">El Novelo está abierto en %1$s. Puedes escribir ahí.</string>
 </resources>

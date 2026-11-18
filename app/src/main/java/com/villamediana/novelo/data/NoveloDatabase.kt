@@ -95,7 +95,8 @@ interface CaptureDao {
 
     /** The last capture that went all the way through before [id] (the conversation's previous turn). */
     // (What was sent along with something said is part of that, not a turn of its own.)
-    @Query("SELECT * FROM captures WHERE state = 'done' AND id != :id AND partOf IS NULL ORDER BY id DESC LIMIT 1")
+    // By when it was said, not by id: one written on the computer has a far higher id (Novelo Web).
+    @Query("SELECT * FROM captures WHERE state = 'done' AND id != :id AND partOf IS NULL ORDER BY createdAt DESC, id DESC LIMIT 1")
     suspend fun lastDone(id: Long): Capture?
 
     /** The photos sent together with capture [id], in the order she took them. */
@@ -256,10 +257,13 @@ interface BackupDao {
 }
 
 @Database(
-    entities = [Entry::class, Capture::class, Topic::class, EntryTopic::class, Link::class, Progress::class, Med::class, MedTaken::class, Vector::class],
-    version = 15,
+    entities = [
+        Entry::class, Capture::class, Topic::class, EntryTopic::class, Link::class, Progress::class, Med::class, MedTaken::class, Vector::class,
+        com.villamediana.novelo.sync.SyncRecord::class, com.villamediana.novelo.sync.SyncFile::class,
+    ],
+    version = 16,
     exportSchema = true,
-    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 3, to = 4), AutoMigration(from = 4, to = 5), AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7), AutoMigration(from = 7, to = 8), AutoMigration(from = 8, to = 9), AutoMigration(from = 9, to = 10), AutoMigration(from = 11, to = 12), AutoMigration(from = 12, to = 13), AutoMigration(from = 13, to = 14), AutoMigration(from = 14, to = 15)],
+    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 3, to = 4), AutoMigration(from = 4, to = 5), AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7), AutoMigration(from = 7, to = 8), AutoMigration(from = 8, to = 9), AutoMigration(from = 9, to = 10), AutoMigration(from = 11, to = 12), AutoMigration(from = 12, to = 13), AutoMigration(from = 13, to = 14), AutoMigration(from = 14, to = 15), AutoMigration(from = 15, to = 16)],
 )
 abstract class NoveloDatabase : RoomDatabase() {
     abstract fun entries(): EntryDao
@@ -269,6 +273,7 @@ abstract class NoveloDatabase : RoomDatabase() {
     abstract fun backup(): BackupDao
     abstract fun meds(): MedDao
     abstract fun vectors(): VectorDao
+    abstract fun sync(): com.villamediana.novelo.sync.SyncDao
 
     companion object {
         /**

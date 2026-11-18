@@ -47,6 +47,8 @@ class NoveloApplication : Application() {
         runCatching { WorkDone.watch(this, graph.scope, graph.mind.told) }
         // The network is back (the app open): what waited for it in the line goes, one by one.
         runCatching { graph.net.whenBack { graph.mind.networkBack() } }
+        // The Novelo on the computer, when a computer was linked: kept in step.
+        runCatching { graph.web.watch() }
     }
 
     companion object {

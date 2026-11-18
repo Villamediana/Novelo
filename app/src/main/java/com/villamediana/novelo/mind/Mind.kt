@@ -934,11 +934,11 @@ class Mind(
     private suspend fun together(c: Capture): List<Capture> {
         val others = db.captures().unfinished()
             .filter { it.id != c.id && it.source == "photo" && it.partOf == null && it.imagePath != null && it.state != Capture.STOPPED && it.tries < MAX_TRIES }
-            .sortedBy { it.id }
+            .sortedWith(compareBy<Capture> { it.createdAt }.thenBy { it.id })
             .take(MAX_SENT_SEEN - 1)
         if (others.isEmpty()) return listOf(c)
         synchronized(queued) { others.forEach { if (it.id in queued) carried += it.id } }
-        return (listOf(c) + others).sortedBy { it.id }
+        return (listOf(c) + others).sortedWith(compareBy<Capture> { it.createdAt }.thenBy { it.id })
     }
 
     /** What is written in each of [list], read on the phone once ([reading]: which of how many, before each). */

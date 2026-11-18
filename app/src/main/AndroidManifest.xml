@@ -63,7 +63,18 @@
             android:screenOrientation="portrait"
             android:theme="@style/Theme.Novelo.Splash"
             android:windowSoftInputMode="adjustResize"
-            tools:ignore="DiscouragedApi,LockedOrientationActivity" />
+            tools:ignore="DiscouragedApi,LockedOrientationActivity">
+            <!-- The code the Novelo on the computer shows, read by the phone's own camera: opens here to link it
+                 (verified: novelo.simplyonegoal.com/.well-known/assetlinks.json names this app). -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+                <data android:host="novelo.simplyonegoal.com" />
+                <data android:path="/web/link" />
+            </intent-filter>
+        </activity>
 
         <!-- The icon on the phone, one per accent (LauncherIcon turns on the one she chose). The
              default keeps the old name (.MainActivity), so the icon already on her home screen stays. -->

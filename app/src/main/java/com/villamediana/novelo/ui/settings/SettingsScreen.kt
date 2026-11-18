@@ -73,7 +73,7 @@ import com.villamediana.novelo.ui.theme.NoveloColors
 import com.villamediana.novelo.ui.update.UpdateRow
 
 /** The parts of Ajustes, each opened in place. */
-private enum class Part { AI, THEME, TABS, ALARM, BACKUP, PRIVACY, LANGUAGE, SENSE }
+private enum class Part { AI, WEB, THEME, TABS, ALARM, BACKUP, PRIVACY, LANGUAGE, SENSE }
 
 /**
  * Ajustes: one page. Each part is a line that says in a few words how things are (in the accent
@@ -99,6 +99,13 @@ fun SettingsScreen(nav: Nav, openAi: Boolean = false) {
             // The Novelo's own intelligence needs nothing from her: who hears, sees and thinks shows
             // only to who isn't all on it (her API, the model on the phone) or can't be any more.
             if (intelligenceShown(s, novelo)) Fold(t(R.string.ai_title), ai.first, ai.second, open == Part.AI, { toggle(Part.AI) }) { IntelligenceSection() }
+            // The Novelo on the computer (writing there, everything in step): only where there is a server.
+            if (graph.server.available) {
+                val computers by graph.web.computers.collectAsStateWithLifecycle()
+                val sync by graph.web.engine.status.collectAsStateWithLifecycle()
+                LaunchedEffect(Unit) { graph.web.refresh() }
+                Fold(t(R.string.web_title), computerSummary(graph.web.on, computers?.size ?: 0, sync), false, open == Part.WEB, { toggle(Part.WEB) }) { ComputerSection(nav) }
+            }
             Fold(
                 t(R.string.theme),
                 when (s.theme) { ThemeMode.SYSTEM -> t(R.string.theme_system); ThemeMode.LIGHT -> t(R.string.theme_light); ThemeMode.DARK -> t(R.string.theme_dark) } + " · " + NoveloAccents.byId(s.accent).name.lowercase(),

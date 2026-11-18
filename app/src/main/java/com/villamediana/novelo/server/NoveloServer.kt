@@ -156,7 +156,14 @@ class NoveloServer(
         throw ServerException(reply.status, code, err["message"]?.jsonPrimitive?.contentOrNull ?: code, err["retry_after"]?.jsonPrimitive?.intOrNull ?: 0)
     }
 
-    private suspend fun send(method: String, path: String, body: ByteArray?, type: String?, headers: Map<String, String> = emptyMap()): Reply = withContext(Dispatchers.IO) {
+    /**
+     * Any signed request (the Novelo Web's sync and links, docs/WEB.md): [path] is what is signed,
+     * [query] ("?since=…") goes along unsigned. Its own tag: a stop of the work doesn't cut the sync.
+     */
+    suspend fun call(method: String, path: String, query: String = "", body: ByteArray? = null, type: String? = JSON): Reply =
+        send(method, path, body, type, query = query, tag = SYNC_TAG)
+
+    private suspend fun send(method: String, path: String, body: ByteArray?, type: String?, headers: Map<String, String> = emptyMap(), query: String = "", tag: String = TAG): Reply = withContext(Dispatchers.IO) {
         if (!available) throw ServerException(0, "not_configured", "no server")
         // One id for the request, whatever happens on the way: the server asks a model once.
         val request = UUID.randomUUID().toString()
@@ -166,7 +173,7 @@ class NoveloServer(
         while (true) {
             val id = device ?: register(null).also { registered = true }
             val reply = try {
-                once(method, path, body, type, headers, id, request)
+                once(method, path, body, type, headers, id, request, query, tag)
             } catch (e: IOException) {
                 // The connection fell on the way: the same request again (the server answers it once).
                 if (++dropped > DROPS) throw e
@@ -199,18 +206,18 @@ class NoveloServer(
         error("unreachable")
     }
 
-    private fun once(method: String, path: String, body: ByteArray?, type: String?, headers: Map<String, String>, id: String, request: String): Reply {
+    private fun once(method: String, path: String, body: ByteArray?, type: String?, headers: Map<String, String>, id: String, request: String, query: String = "", tag: String = TAG): Reply {
         val bytes = body ?: ByteArray(0)
         val time = clock() + skew
         val text = "v1\n$method\n$path\n$time\n$request\n${hex(MessageDigest.getInstance("SHA-256").digest(bytes))}"
-        val builder = Request.Builder().url(base + path)
+        val builder = Request.Builder().url(base + path + query)
             .method(method, if (method == "GET" || (method == "DELETE" && body == null)) null else bytes.toRequestBody((type ?: BYTES).toMediaType()))
             .header("X-Novelo-Device", id)
             .header("X-Novelo-Time", time.toString())
             .header("X-Novelo-Request", request)
             .header("X-Novelo-Signature", Base64.encodeToString(box.sign(text.toByteArray()), Base64.NO_WRAP))
             .header("X-Novelo-App", version)
-            .tag(String::class.java, TAG)
+            .tag(String::class.java, tag)
         headers.forEach { (k, v) -> builder.header(k, v) }
         client.newCall(builder.build()).execute().use { r ->
             return Reply(r.code, r.body.bytes()) { name -> r.headers[name] }
@@ -249,7 +256,9 @@ class NoveloServer(
 
     private companion object {
         const val TAG = "novelo-server"
+        const val SYNC_TAG = "novelo-sync"
         const val JSON = "application/json"
+        const val BYTES_TYPE = "application/octet-stream"
         const val BYTES = "application/octet-stream"
         const val DEVICE = "device"
         const val PLAN = "plan"

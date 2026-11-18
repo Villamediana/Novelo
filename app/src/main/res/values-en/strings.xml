@@ -540,4 +540,37 @@
     <string name="novelo_quota">Today\'s limit was reached. I kept it; it goes on tomorrow.</string>
     <string name="novelo_later">Novelo\'s intelligence didn\'t answer now. I kept it; try again in a moment.</string>
     <string name="device_code">device %1$s</string>
+    <!-- Novelo Web: o computador -->
+    <string name="web_title">Computer</string>
+    <string name="web_off">Write on the computer too</string>
+    <string name="web_on">On</string>
+    <string name="web_sending">Sending %1$d files</string>
+    <string name="web_one">1 computer linked</string>
+    <string name="web_many">%1$d computers linked</string>
+    <string name="web_about">On the computer, Novelo is for writing. Open novelo.simplyonegoal.com/web on the computer and scan the code it shows. Everything stays in step with the phone, encrypted here: the server only keeps what it can\'t read.</string>
+    <string name="web_link_one">Link a computer</string>
+    <string name="web_link_one_hint">Scan the code on its screen</string>
+    <string name="web_computer">Computer</string>
+    <string name="web_seen">Seen %1$s</string>
+    <string name="web_unlink">Unlink this computer</string>
+    <string name="web_syncing">Syncing…</string>
+    <string name="web_sync_failed">Couldn\'t sync right now. I\'ll try again on my own.</string>
+    <string name="web_files_waiting">%1$d files waiting for Wi-Fi</string>
+    <string name="web_synced">Up to date · %1$s</string>
+    <string name="web_stop">Stop and erase from the server</string>
+    <string name="web_stop_sure">Tap again to stop</string>
+    <string name="web_stop_hint">The computers are unlinked and the encrypted copy leaves the server. Nothing changes on the phone.</string>
+    <string name="web_code_expired">That code expired. Reload the page on the computer and scan the new one.</string>
+    <string name="web_too_many">Too many computers linked. Unlink one in Settings › Computer.</string>
+    <string name="web_offline">No internet right now. Try again when it\'s back.</string>
+    <string name="web_failed">Couldn\'t link the computer. Try again.</string>
+    <string name="web_scan_title">Link a computer</string>
+    <string name="web_scan_hint">Point at the code on novelo.simplyonegoal.com/web</string>
+    <string name="web_scan_no_camera">To scan the code, Novelo needs the camera.</string>
+    <string name="web_link_ask">Link this computer?</string>
+    <string name="web_link_ask_hint">It will see and change everything in Novelo, together with the phone. Only link a code you opened yourself on your own computer: no one from Novelo will ever ask for this.</string>
+    <string name="web_link_do">Link</string>
+    <string name="web_linking">Linking…</string>
+    <string name="web_linked">Done</string>
+    <string name="web_linked_hint">Novelo is open on %1$s. You can write there.</string>
 </resources>

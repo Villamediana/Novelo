@@ -43,6 +43,8 @@ sealed interface Ask {
     data class TalkAbout(val id: Long) : Ask
     /** The Remédios tab (a medicine's reminder was tapped). */
     data object OpenMeds : Ask
+    /** A computer's code (the Novelo on the computer), opened from the phone's own camera. */
+    data class LinkComputer(val code: com.villamediana.novelo.sync.NoveloWeb.Code) : Ask
 }
 
 /** A FragmentActivity (the system's lock prompt, for what is sensitive, needs one); Compose all the same. */
@@ -146,7 +148,10 @@ class NoveloActivity : androidx.fragment.app.FragmentActivity() {
         val open = intent?.getLongExtra(EXTRA_OPEN_ENTRY, -1L) ?: -1L
         val talk = intent?.getLongExtra(EXTRA_TALK_ABOUT, -1L) ?: -1L
         val meds = intent?.getBooleanExtra(EXTRA_OPEN_MEDS, false) == true
+        val computer = if (intent?.action == Intent.ACTION_VIEW) com.villamediana.novelo.sync.NoveloWeb.code(intent.dataString) else null
+        if (computer != null) intent?.data = null
         ask = when {
+            computer != null -> Ask.LinkComputer(computer)
             talk >= 0 -> Ask.TalkAbout(talk)
             open >= 0 -> Ask.OpenEntry(open)
             meds -> Ask.OpenMeds

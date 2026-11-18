@@ -121,6 +121,24 @@ class AppGraph(context: Context) {
     /** Whether there is a network at all, and when one comes back (what waited in the line goes by itself). */
     val net: com.villamediana.novelo.mind.Net by lazy { com.villamediana.novelo.mind.Net(appContext, scope) }
 
+    /** The Novelo on the computer: linking computers and keeping everything in step (encrypted here; docs in novelo-server/docs/WEB.md). */
+    val web: com.villamediana.novelo.sync.NoveloWeb by lazy {
+        val space = com.villamediana.novelo.sync.PrefsSpace(appContext)
+        val transport = com.villamediana.novelo.sync.ServerTransport(server)
+        val engine = com.villamediana.novelo.sync.SyncEngine(db, transport, space, com.villamediana.novelo.sync.PhoneMedia(appContext, captures)) { a ->
+            // What came from a computer: its reminders ring here, its medicines too, and what it handed over is organized here.
+            if (a.entries.isNotEmpty()) runCatching { reminders.sync(a.entries.toList()) }
+            if (a.meds) runCatching { reminders.syncMeds() }
+            if (a.handedOff) {
+                val onScreen = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
+                }
+                if (onScreen) mind.retryPending() else com.villamediana.novelo.mind.WhenOnline.schedule(appContext)
+            }
+        }
+        com.villamediana.novelo.sync.NoveloWeb(appContext, db, engine, transport, scope, space)
+    }
+
     val mind: Mind by lazy {
         Mind(
             scope = scope,
