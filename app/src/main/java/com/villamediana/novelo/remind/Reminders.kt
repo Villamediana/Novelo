@@ -205,7 +205,13 @@ class Reminders(private val context: Context, private val db: NoveloDatabase) : 
         const val EXTRA_KIND = "kind"
         const val EXTRA_AT = "at"
 
-        fun requestCode(entryId: Long, kind: Int): Int = (entryId * 2 + kind).toInt()
+        /**
+         * The alarm's number for an entry. The ids made on a computer (Novelo Web) are far above an
+         * Int: those are folded into a range of their own; the phone's own keep the number they always had.
+         */
+        fun requestCode(entryId: Long, kind: Int): Int =
+            if (entryId in 0 until (1L shl 29)) (entryId * 2 + kind).toInt()
+            else (1 shl 30) + (((entryId xor (entryId ushr 31)) and 0x0FFFFFFFL).toInt() * 2 + kind) % (1 shl 29)
         fun notificationId(entryId: Long, kind: Int): Int = 10_000 + requestCode(entryId, kind)
     }
 }
