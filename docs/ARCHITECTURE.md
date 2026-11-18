@@ -78,7 +78,14 @@ O site é do servidor (novelo-server: `web/`, React; protocolo e cifra em `docs/
 - **Fotos e arquivos**: sobem cifrados (os grandes só fora do 4G, `SMALL`); a foto também numa miniatura de
   480 px; o que vem do computador desce e vai pro lugar dele (`moveFiles`). O servidor apaga o que ninguém usa
   mais (`keep`).
-- **Desligar/parar**: Ajustes › Computador lista e desliga cada um; "Parar" apaga o espaço do servidor.
+- **Desligar/parar**: Ajustes › Computador lista e desliga cada um ("Visto …"; um computador de outra pessoa,
+  ligado com "Manter ligado" desmarcado, aparece com "só enquanto a aba estiver aberta"); "Parar" apaga o
+  espaço do servidor.
+- **A chave do espaço nunca fica em texto puro no celular** (1.79.1): selada pelo AndroidKeyStore; se ele falhar,
+  ligar falha à vista (antes caía pra texto puro sem avisar). Só os testes (Robolectric, sem keystore) guardam
+  como está. Uma chave guardada assim num celular com keystore é selada na hora em que é lida.
+- **Do lado da página** (servidor): cada pedido do computador vai assinado por uma chave que não sai do
+  navegador, uma aba trabalha de cada vez e um computador de outra pessoa não guarda nada (ver `docs/WEB.md` lá).
 - **Paridade**: a página repete o `Brain`, o `Keeper`, as repetições, os remédios, o diário, a busca e as abas em
   JS. `sync/WebParityTest.kt` grava as respostas do app em casos fixos
   (`novelo-server/test/fixtures/web-parity.json`) e o `web-parity.test.js` de lá exige as mesmas, até o texto

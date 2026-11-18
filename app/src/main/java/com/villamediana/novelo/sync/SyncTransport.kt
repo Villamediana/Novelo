@@ -23,7 +23,8 @@ interface SyncTransport {
     data class Changes(val changes: List<Change>, val seq: Long, val more: Boolean, val head: Long)
     data class Push(val k: String, val base: Long, val d: String?)
     data class Pushed(val k: String, val ok: Boolean, val s: Long, val d: String?)
-    data class Computer(val id: String, val name: String, val created: Long, val lastSeen: Long)
+    /** A computer linked: [shared] when it isn't kept linked (someone else's: it goes when its tab closes). */
+    data class Computer(val id: String, val name: String, val created: Long, val lastSeen: Long, val shared: Boolean = false)
 
     /** The space opened with this key ([keyCheck]); another key there throws [KeyMismatch] unless [reset]. */
     suspend fun open(keyCheck: String, reset: Boolean): Opened
@@ -121,7 +122,7 @@ class ServerTransport(private val server: NoveloServer) : SyncTransport {
     override suspend fun computers(): List<SyncTransport.Computer> =
         json("GET", "/v1/links")["links"]!!.jsonArray.map { x ->
             val o = x.jsonObject
-            SyncTransport.Computer(o["id"]!!.jsonPrimitive.content, o["name"]?.jsonPrimitive?.contentOrNull.orEmpty(), o["created"]?.jsonPrimitive?.longOrNull ?: 0, o["last_seen"]?.jsonPrimitive?.longOrNull ?: 0)
+            SyncTransport.Computer(o["id"]!!.jsonPrimitive.content, o["name"]?.jsonPrimitive?.contentOrNull.orEmpty(), o["created"]?.jsonPrimitive?.longOrNull ?: 0, o["last_seen"]?.jsonPrimitive?.longOrNull ?: 0, o["shared"]?.jsonPrimitive?.booleanOrNull ?: false)
         }
 
     override suspend fun unlink(id: String) {

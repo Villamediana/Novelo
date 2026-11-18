@@ -61,7 +61,8 @@ internal fun ComputerSection(nav: Nav) {
         },
         *computers.orEmpty().map { c ->
             @Composable {
-                Line(c.name.ifBlank { t(R.string.web_computer) }, if (c.lastSeen > 0) t(R.string.web_seen, moment(c.lastSeen)) else null) {
+                val seen = if (c.lastSeen > 0) t(R.string.web_seen, moment(c.lastSeen)) else null
+                Line(c.name.ifBlank { t(R.string.web_computer) }, if (c.shared) listOfNotNull(seen, t(R.string.web_shared)).joinToString(" · ") else seen) {
                     IconAction(NoveloIcons.Close, t(R.string.web_unlink), { scope.launch { runCatching { web.unlink(c.id) } } })
                 }
             }
