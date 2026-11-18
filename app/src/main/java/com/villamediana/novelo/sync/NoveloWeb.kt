@@ -228,12 +228,16 @@ class PrefsSpace(context: Context) : SyncSpace {
     override fun master(): ByteArray? {
         cached?.let { return it }
         val sealed = prefs.getString(KEY, null) ?: return null
-        return open(sealed)?.also { cached = it }
+        val key = open(sealed) ?: return null
+        // Kept in the clear (only where there is no keystore: the tests) on a phone that has one: sealed now.
+        if (sealed.startsWith("p1:") && !NO_KEYSTORE) prefs.edit().putString(KEY, seal(key)).apply()
+        return key.also { cached = it }
     }
 
     override fun start(master: ByteArray) {
+        val sealed = seal(master) // first: a keystore that fails leaves nothing behind
+        prefs.edit().putString(KEY, sealed).putLong(CURSOR, 0).remove(SPACE).apply()
         cached = master
-        prefs.edit().putString(KEY, seal(master)).putLong(CURSOR, 0).remove(SPACE).apply()
     }
 
     override fun stop() {
@@ -255,11 +259,18 @@ class PrefsSpace(context: Context) : SyncSpace {
         return gen.generateKey()
     }
 
-    private fun seal(plain: ByteArray): String = runCatching {
+    /**
+     * The space's key sealed by the phone's keystore. Where there is none at all (the unit tests) it is
+     * kept as it is; on a phone a keystore that fails fails the link — the key never sits in the clear.
+     */
+    private fun seal(plain: ByteArray): String = try {
         val c = Cipher.getInstance("AES/GCM/NoPadding")
         c.init(Cipher.ENCRYPT_MODE, keystoreKey())
         "k1:" + Base64.encodeToString(c.iv, Base64.NO_WRAP) + ":" + Base64.encodeToString(c.doFinal(plain), Base64.NO_WRAP)
-    }.getOrElse { "p1:" + Base64.encodeToString(plain, Base64.NO_WRAP) } // no keystore (the tests)
+    } catch (e: Exception) {
+        if (!NO_KEYSTORE) throw e
+        "p1:" + Base64.encodeToString(plain, Base64.NO_WRAP)
+    }
 
     private fun open(sealed: String): ByteArray? = runCatching {
         val parts = sealed.split(':')
@@ -278,6 +289,9 @@ class PrefsSpace(context: Context) : SyncSpace {
         const val CURSOR = "cursor"
         const val SPACE = "space"
         const val ALIAS = "novelo-sync"
+
+        /** The unit tests (Robolectric): no keystore at all. */
+        val NO_KEYSTORE = Build.FINGERPRINT == "robolectric"
     }
 }
 

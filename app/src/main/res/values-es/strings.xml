@@ -552,6 +552,7 @@
     <string name="web_link_one_hint">Lee el código que aparece en su pantalla</string>
     <string name="web_computer">Computadora</string>
     <string name="web_seen">Vista %1$s</string>
+    <string name="web_shared">solo mientras la pestaña esté abierta</string>
     <string name="web_unlink">Desconectar esta computadora</string>
     <string name="web_syncing">Sincronizando…</string>
     <string name="web_sync_failed">No se pudo sincronizar ahora. Lo intento de nuevo solo.</string>

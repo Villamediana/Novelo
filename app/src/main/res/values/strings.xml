@@ -553,6 +553,7 @@
     <string name="web_computer">Computador</string>
     <string name="web_seen">Visto %1$s</string>
     <string name="web_unlink">Desligar este computador</string>
+    <string name="web_shared">só enquanto a aba estiver aberta</string>
     <string name="web_syncing">Sincronizando…</string>
     <string name="web_sync_failed">Não deu pra sincronizar agora. Tento de novo sozinho.</string>
     <string name="web_files_waiting">%1$d arquivos esperando o Wi-Fi pra ir</string>

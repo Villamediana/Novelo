@@ -552,6 +552,7 @@
     <string name="web_link_one_hint">Scan the code on its screen</string>
     <string name="web_computer">Computer</string>
     <string name="web_seen">Seen %1$s</string>
+    <string name="web_shared">only while its tab is open</string>
     <string name="web_unlink">Unlink this computer</string>
     <string name="web_syncing">Syncing…</string>
     <string name="web_sync_failed">Couldn\'t sync right now. I\'ll try again on my own.</string>

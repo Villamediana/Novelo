@@ -51,8 +51,8 @@ android {
         applicationId = "com.villamediana.novelo"
         minSdk = 29
         targetSdk = 36
-        versionCode = 116
-        versionName = "1.79.0"
+        versionCode = 117
+        versionName = "1.79.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("boolean", "HAS_LOCAL_ENGINE", withNative.toString())
         buildConfigField("String", "NOVELO_SERVER", "\"" + noveloServer + "\"")
