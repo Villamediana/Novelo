@@ -224,7 +224,7 @@ class KeeperAndMindTest {
         var asked = 0
         val m = mind(ears, thinker, offline = { asked++ })
         m.write("anota a senha do wifi: girassol")
-        val problem = withTimeout(10_000) { m.state.first { it is MindState.Problem } as MindState.Problem }
+        val problem = withTimeout(10_000) { m.told.first { it is MindState.Problem } as MindState.Problem }
         assertTrue(problem.message, problem.message.contains("internet"))
         assertEquals(1, asked)
         // Kept: when the network is back (what the scheduled work does), it goes through.
@@ -310,11 +310,11 @@ class KeeperAndMindTest {
         override suspend fun file(file: FileSeen, said: String?, look: ByteArray?): String? { asked += file to said; return next.removeFirstOrNull() }
     }
 
-    private fun mind(ears: Ears, thinker: Thinker, sync: ReminderSync = Synced(), recorder: Recorder = Recorder(), mic: com.villamediana.novelo.mind.MicHolder = NoMic, scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO), photos: PhotoReader = NoPhotos, offline: () -> Unit = {}, peek: FilePeek = NoPeek, about: About = NoAbout, near: Nearby = Nearby.NONE, answerFor: Long = Mind.ANSWER_MS) = Mind(
+    private fun mind(ears: Ears, thinker: Thinker, sync: ReminderSync = Synced(), recorder: Recorder = Recorder(), mic: com.villamediana.novelo.mind.MicHolder = NoMic, scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO), photos: PhotoReader = NoPhotos, offline: () -> Unit = {}, peek: FilePeek = NoPeek, about: About = NoAbout, near: Nearby = Nearby.NONE, answerFor: Long = Mind.ANSWER_MS, online: () -> Boolean = { true }) = Mind(
         scope = scope,
         db = db, recorder = recorder, hearing = ears, thinking = thinker, keeper = keeper(), reminders = sync,
         photos = photos, mic = mic, dir = tmp.root, zone = { zone }, clock = { now }, offline = offline, peek = peek, about = about, near = near,
-        answerFor = answerFor,
+        answerFor = answerFor, online = online,
     )
 
     private fun voiceFile(): File = tmp.newFile("v.wav").also { f ->
@@ -322,7 +322,7 @@ class KeeperAndMindTest {
     }
 
     private suspend fun answered(m: Mind): MindState.Answer = withTimeout(10_000) {
-        m.state.first { it is MindState.Answer || it is MindState.Problem }.let { it as? MindState.Answer ?: error("problem: $it") }
+        m.told.first { it is MindState.Answer || it is MindState.Problem }.let { it as? MindState.Answer ?: error("problem: $it") }
     }
 
     @Test
@@ -337,9 +337,9 @@ class KeeperAndMindTest {
         assertTrue(m.startListening(locked = true))
         assertTrue(m.state.value is MindState.Listening)
         m.stopListening()
-        // One stop: the screen leaves "ouvindo" at once (it used to stay there until a second tap,
-        // hiding the progress and the answer, and a new hold then recorded nothing).
-        assertTrue("${m.state.value}", m.state.value is MindState.Working)
+        // One stop: the screen leaves "ouvindo" at once and the button is free — what she said goes
+        // to the line under it (it used to take the whole screen until it was done).
+        assertTrue("${m.state.value}", m.state.value is MindState.Idle)
         val a = answered(m)
         assertEquals("Anotei.", a.reply)
         // The background was held from before the microphone let go until the work was done.
@@ -355,12 +355,149 @@ class KeeperAndMindTest {
     }
 
     @Test
+    fun whatShesaysGoesToALineAndTheButtonStaysFree() = runBlocking {
+        val thinker = StuckThinker("""{"reply":"Anotei.","create":[{"kind":"note","title":"Ideia"}]}""")
+        var n = 0
+        val rec = FakeRecorder { voiceFile().let { f -> File(tmp.root, "q${++n}.wav").also { f.renameTo(it) } } }
+        val m = mind(FakeEars("uma ideia"), thinker, recorder = rec)
+
+        // The first thing said goes through (and hangs on the thinking)…
+        assertTrue(m.startListening(locked = true))
+        m.stopListening()
+        assertTrue(m.state.value is MindState.Idle)
+        withTimeout(5_000) { m.going.first { it?.stage == Stage.THINKING } }
+        val first = withTimeout(5_000) { m.line.first { it.singleOrNull()?.text == "uma ideia" } }.single()
+        assertEquals(Waiting.Where.GOING, first.where)
+        assertEquals(first.id, m.going.value!!.captureId)
+
+        // …and she says two more meanwhile: each waits its turn, in the order said.
+        repeat(2) {
+            assertTrue(m.startListening(locked = true))
+            assertTrue(m.state.value is MindState.Listening)
+            m.stopListening()
+            assertTrue(m.state.value is MindState.Idle)
+        }
+        val line = withTimeout(5_000) { m.line.first { it.size == 3 && it.count { w -> w.where == Waiting.Where.IN_LINE } == 2 } }
+        assertEquals(Waiting.Where.GOING, line[0].where)
+        assertEquals(line.map { it.id }.sorted(), line.map { it.id })
+        assertEquals(3, rec.starts)
+
+        // One waiting is thrown away (a swipe): it leaves the line and never goes.
+        m.discard(line[2].id)
+        withTimeout(5_000) { m.line.first { it.size == 2 } }
+
+        // The one going through ends: its answer shows, the next takes its turn by itself.
+        thinker.stuck = false
+        val a = withTimeout(10_000) { m.state.first { it is MindState.Answer } } as MindState.Answer
+        assertEquals(first.id, a.captureId)
+        withTimeout(10_000) { m.line.first { it.isEmpty() } }
+        assertNull(m.going.value)
+        assertEquals(2, db.entries().all().size)
+        assertNull(db.captures().get(line[2].id))
+    }
+
+    @Test
+    fun withoutANetworkItWaitsAtOnceAndGoesWhenItIsBack() = runBlocking {
+        var asked = 0
+        var net = false
+        var thought = 0
+        val thinker = object : Thinker {
+            override suspend fun seesImages() = false
+            override suspend fun needsNet() = true
+            override suspend fun answer(system: String, user: String, image: ByteArray?): String {
+                thought++
+                return """{"reply":"Anotei.","create":[{"kind":"note","title":"Nota $thought"}]}"""
+            }
+        }
+        val m = mind(FakeEars("no metrô"), thinker, offline = { asked++ }, online = { net })
+        // Three things said with no network at all: none is even tried, each says why and waits.
+        val ids = (1..3).map { db.captures().insert(Capture(createdAt = now + it, source = "voice", audioPath = voiceFile().let { f -> File(tmp.root, "m$it.wav").also { to -> f.renameTo(to) } }.path, durationMs = 2000, state = Capture.RECORDED)) }
+        ids.forEach(m::retry)
+        val line = withTimeout(10_000) { m.line.first { it.size == 3 && it.all { w -> w.where == Waiting.Where.LATER } } }
+        assertEquals(0, thought)
+        assertEquals(3, asked)
+        assertTrue(line.all { it.message!!.contains("internet") })
+        // Heard on the phone meanwhile: the words are already there.
+        assertTrue(line.all { it.text == "no metrô" })
+        assertTrue(m.state.value is MindState.Idle)
+        assertTrue(ids.all { db.captures().get(it)!!.state == Capture.FAILED })
+
+        // The network is back: they go by themselves, one by one, in the order said.
+        net = true
+        m.networkBack()
+        withTimeout(10_000) { m.line.first { it.isEmpty() } }
+        assertEquals(listOf("Nota 1", "Nota 2", "Nota 3"), db.entries().all().sortedBy { it.id }.map { it.title })
+        assertTrue(ids.all { db.captures().get(it)!!.state == Capture.DONE })
+        // Nothing left waiting for a network: another "back" does nothing.
+        m.networkBack()
+        kotlinx.coroutines.delay(200)
+        assertEquals(3, thought)
+    }
+
+    @Test
+    fun anEarOutOnTheNetworkIsNotTriedWithoutOne() = runBlocking {
+        var heard = 0
+        val ears = object : Ears {
+            override suspend fun needsNet() = true
+            override suspend fun transcribe(wav: File, from: Heard, onPiece: suspend (Heard) -> Unit, onPartial: (String) -> Unit): String {
+                heard++
+                return "comprar pão"
+            }
+        }
+        var net = false
+        val thinker = FakeThinker(ArrayDeque(listOf("""{"reply":"Anotei.","create":[{"kind":"task","title":"Comprar pão"}]}""")))
+        val m = mind(ears, thinker, online = { net })
+        val id = db.captures().insert(Capture(createdAt = now, source = "voice", audioPath = voiceFile().path, durationMs = 2000, state = Capture.RECORDED))
+        m.retry(id)
+        val w = withTimeout(10_000) { m.line.first { it.singleOrNull()?.where == Waiting.Where.LATER } }.single()
+        assertEquals(0, heard)
+        assertEquals("", w.text)
+        // Not heard yet: the line tells it by how long it is.
+        assertEquals(2000L, w.durationMs)
+        // The recording is all there, to be heard when it can.
+        assertEquals(Capture.RECORDED, db.captures().get(id)!!.state)
+        net = true
+        m.networkBack()
+        withTimeout(10_000) { m.line.first { it.isEmpty() } }
+        assertEquals(1, heard)
+        assertEquals(listOf("Comprar pão"), db.entries().all().map { it.title })
+    }
+
+    @Test
+    fun theOneGoingThroughCanBeThrownAwayAndAnAnswerWaitsForHerToStopTalking() = runBlocking {
+        val thinker = StuckThinker("""{"reply":"Anotei.","create":[{"kind":"note","title":"Ideia"}]}""")
+        val rec = FakeRecorder { voiceFile() }
+        val m = mind(FakeEars("uma ideia"), thinker, recorder = rec)
+        val gone = db.captures().insert(Capture(createdAt = now, source = Capture.TEXT, transcript = "isso não", state = Capture.RECORDED))
+        m.retry(gone)
+        withTimeout(5_000) { m.going.first { it?.captureId == gone && it.stage == Stage.THINKING } }
+        // Thrown away while it goes: stopped, out of the line, nothing kept.
+        m.discard(gone)
+        withTimeout(5_000) { m.line.first { it.isEmpty() } }
+        assertNull(db.captures().get(gone))
+        assertEquals(1, thinker.stops)
+        thinker.stuck = false
+        kotlinx.coroutines.delay(200)
+        assertEquals(0, db.entries().all().size)
+        assertTrue(m.state.value is MindState.Idle)
+
+        // Something written goes through while she is talking: its answer doesn't cut in…
+        assertTrue(m.startListening(locked = true))
+        m.write("anota uma ideia")
+        withTimeout(10_000) { m.told.first { it is MindState.Answer } }
+        assertTrue(m.state.value is MindState.Listening)
+        // …it shows when she is done.
+        m.cancelListening()
+        assertEquals("Anotei.", (m.state.value as MindState.Answer).reply)
+    }
+
+    @Test
     fun aMicrophoneForgottenOpenClosesByItselfAndNothingIsKept() = runBlocking {
         val holder = Holder()
         val rec = FakeRecorder { voiceFile() }.apply { quiet = Mind.QUIET_MS }
         val m = mind(FakeEars("nada"), FakeThinker(ArrayDeque()), recorder = rec, mic = holder)
         assertTrue(m.startListening(locked = true))
-        val p = withTimeout(10_000) { m.state.first { it is MindState.Problem } } as MindState.Problem
+        val p = withTimeout(10_000) { m.told.first { it is MindState.Problem } } as MindState.Problem
         // She is told why it closed (and the phone buzzed), and there is nothing to hear or keep.
         assertTrue(p.message, p.message.contains("2"))
         assertNull(p.captureId)
@@ -408,8 +545,10 @@ class KeeperAndMindTest {
         assertTrue("${m.state.value}", m.state.value is MindState.Listening)
         after(Mind.LONGEST_MS, "closed")
         assertEquals("Guardei.", answered(m).reply)
+        // (The answer is told a moment before the work lets go of the background: the calls are read once it has.)
+        withTimeout(5_000) { while (holder.working) kotlinx.coroutines.delay(20) }
         // Each warning once, in order, and then it closed.
-        assertEquals(listOf("soon:1", "soon:2", "soon:3", "closed"), holder.calls.filter { it.startsWith("soon") || it == "closed" })
+        assertEquals(listOf("soon:1", "soon:2", "soon:3", "closed"), synchronized(holder.calls) { holder.calls.filter { it.startsWith("soon") || it == "closed" } })
     }
 
     @Test
@@ -669,9 +808,14 @@ class KeeperAndMindTest {
     @Test
     fun theScreenIsToldWhichPhotoAndFileItIsOn() = runBlocking {
         val thinker = FakeThinker(ArrayDeque(listOf("""{"reply":"Guardei."}""")))
-        val m = mind(FakeEars(""), thinker, about = Says("algo", "um arquivo"))
+        // Reading takes a moment, as it does on a phone: each step stays long enough to be seen (a state replaced at once may never reach who watches).
+        val slow = object : PhotoReader {
+            override suspend fun text(file: File): String { kotlinx.coroutines.delay(40); return "" }
+            override suspend fun jpeg(file: File, side: Int) = ByteArray(0)
+        }
+        val m = mind(FakeEars(""), thinker, about = Says("algo", "um arquivo"), photos = slow)
         val seen = java.util.Collections.synchronizedList(mutableListOf<MindState>())
-        val watch = launch(Dispatchers.Default) { m.state.collect { seen += it } }
+        val watch = launch(Dispatchers.Default) { m.told.collect { seen += it } }
         m.stage(listOf(jpegFile("x.jpg") to now, jpegFile("y.jpg") to now))
         m.stageFiles(listOf(picked("z") to "z.pdf"))
         m.write("guarda isso")
@@ -708,10 +852,10 @@ class KeeperAndMindTest {
         val m = mind(FakeEars("uma ideia boa"), thinker)
         val id = db.captures().insert(Capture(createdAt = now, source = "voice", audioPath = voiceFile().path, durationMs = 2000, state = Capture.RECORDED))
         m.retry(id)
-        withTimeout(5_000) { m.state.first { it is MindState.Working && it.stage == Stage.THINKING } }
+        withTimeout(5_000) { m.told.first { it is MindState.Working && it.stage == Stage.THINKING } }
 
         m.stopWork()
-        val p = withTimeout(2_000) { m.state.first { it is MindState.Problem } } as MindState.Problem
+        val p = withTimeout(2_000) { m.told.first { it is MindState.Problem } } as MindState.Problem
         assertEquals(id, p.captureId)
         assertEquals("uma ideia boa", p.said) // what was said stays, with its text
         assertEquals(1, thinker.stops)
@@ -720,7 +864,10 @@ class KeeperAndMindTest {
         // The stuck job finally comes back: it says and keeps nothing.
         thinker.stuck = false
         kotlinx.coroutines.delay(300)
-        assertTrue(m.state.value is MindState.Problem)
+        assertTrue(m.told.value is MindState.Problem)
+        // It waits in the line, stopped, for a hand; the screen around the button stays clean.
+        assertEquals(Waiting.Where.STOPPED, m.line.value.single().where)
+        assertTrue(m.state.value is MindState.Idle)
         assertEquals(0, db.entries().all().size)
 
         // Coming back to the app doesn't start it again on its own…
@@ -743,7 +890,7 @@ class KeeperAndMindTest {
         val m = mind(FakeEars("comprar café"), broken)
         val id = db.captures().insert(Capture(createdAt = now, source = "voice", audioPath = voiceFile().path, durationMs = 2000, state = Capture.RECORDED))
         m.retry(id)
-        val p = withTimeout(5_000) { m.state.first { it is MindState.Problem } } as MindState.Problem
+        val p = withTimeout(5_000) { m.told.first { it is MindState.Problem } } as MindState.Problem
         assertEquals(id, p.captureId)
         assertTrue(p.message, p.message.contains("nativeGenerate"))
         assertEquals("comprar café", db.captures().get(id)!!.transcript)
@@ -949,7 +1096,7 @@ class KeeperAndMindTest {
         val m = mind(FakeEars(""), FakeThinker(ArrayDeque())) // this model doesn't see, and the photo has no text
         val file = tmp.newFile("p.jpg")
         m.photo(file)
-        val p = withTimeout(10_000) { m.state.first { it is MindState.Problem } as MindState.Problem }
+        val p = withTimeout(10_000) { m.told.first { it is MindState.Problem } as MindState.Problem }
         assertNull(p.captureId)
         assertTrue(p.message, p.message.contains("foto"))
         assertTrue(!file.exists())
@@ -995,7 +1142,7 @@ class KeeperAndMindTest {
         val wav = voiceFile()
         val id = db.captures().insert(Capture(createdAt = now, source = "voice", audioPath = wav.path, state = Capture.RECORDED))
         m.retry(id)
-        val p = withTimeout(10_000) { m.state.first { it is MindState.Problem } as MindState.Problem }
+        val p = withTimeout(10_000) { m.told.first { it is MindState.Problem } as MindState.Problem }
         assertEquals(Need.HEAR, p.need)
         assertEquals(id, p.captureId)
         assertTrue(wav.exists())
@@ -1080,7 +1227,7 @@ class KeeperAndMindTest {
         }
         val m = mind(FakeEars(""), thinker, photos = ReadsText("recibo"))
         m.photos(listOf(tmp.newFile("r1.jpg") to now - 1000, tmp.newFile("r2.jpg") to now))
-        withTimeout(10_000) { m.state.first { it is MindState.Problem } }
+        withTimeout(10_000) { m.told.first { it is MindState.Problem } }
         withTimeout(10_000) { while (!m.idle) kotlinx.coroutines.delay(20) }
         // Nothing went: both wait (the second one's turn didn't try again on its own).
         assertEquals(2, db.captures().unfinished().size)

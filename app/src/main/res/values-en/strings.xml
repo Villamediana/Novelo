@@ -44,8 +44,6 @@
     <string name="orb_talk">Talk</string>
     <string name="write">Write</string>
     <string name="settings">Settings</string>
-    <string name="pending_one">1 thing waiting · try now</string>
-    <string name="pending_many">%1$d things waiting · try now</string>
     <string name="staged_one">Say or write what to do with it, or send it as is</string>
     <string name="staged_many">Say or write what to do with them, or send them as they are</string>
     <string name="photo_take_out">Take the photo out</string>
@@ -60,6 +58,14 @@
     <string name="listening_tap_keep">Listening. Tap to keep.</string>
     <string name="release_to_keep">Let go to keep · drag up to discard</string>
     <string name="cancel">Cancel</string>
+    <string name="line_going">Sending…</string>
+    <string name="line_in_line">In line</string>
+    <string name="line_offline">No internet · it goes by itself when it\'s back</string>
+    <string name="line_soon">It goes by itself in a moment</string>
+    <string name="line_stopped">Stopped</string>
+    <string name="line_failed">It didn\'t go</string>
+    <string name="line_audio">Audio · %1$s</string>
+    <string name="line_photo">Photo</string>
     <string name="stage_hearing">Transcribing…</string>
     <string name="stage_reading">Reading the photo…</string>
     <string name="stage_thinking">Organizing…</string>
@@ -377,7 +383,6 @@
     <string name="channel_done">Done</string>
     <string name="done_kept">Kept</string>
     <string name="done_waiting">Left waiting</string>
-    <string name="work_away">You can minimize or close the app: Novelo carries on and lets you know when it\'s done.</string>
     <string name="repeat_daily_at">every day at %1$s</string>
     <string name="repeat_days_at">%1$s at %2$s</string>
     <string name="repeat_monthly_at">every month on day %1$d at %2$s</string>

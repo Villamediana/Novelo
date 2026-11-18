@@ -111,7 +111,9 @@ fun HomeScreen(nav: Nav, talkAbout: Long?, onTalkHandled: () -> Unit) {
     val scope = rememberCoroutineScope()
     val state by mind.state.collectAsStateWithLifecycle()
     val level = mind.level.collectAsStateWithLifecycle()
-    val pending by mind.pending.collectAsStateWithLifecycle()
+    // What she said that is still on its way: the line under the button.
+    val line by mind.line.collectAsStateWithLifecycle()
+    val going by mind.going.collectAsStateWithLifecycle()
     val settings by graph.settings.now.collectAsStateWithLifecycle()
     val entries by graph.library.all().collectAsStateWithLifecycle(initialValue = emptyList())
     val staged by mind.staged.collectAsStateWithLifecycle()
@@ -164,12 +166,12 @@ fun HomeScreen(nav: Nav, talkAbout: Long?, onTalkHandled: () -> Unit) {
         focus = null
     }
 
+    // The work never takes the button: it stays free for the next thing she wants to say.
     val mode = when (val s = state) {
         is MindState.Listening -> if (s.locked) OrbMode.LOCKED else OrbMode.HOLDING
-        is MindState.Working -> OrbMode.WORKING
         else -> OrbMode.IDLE
     }
-    val hasContent = state is MindState.Answer || state is MindState.Problem || state is MindState.Working
+    val hasContent = state is MindState.Answer || state is MindState.Problem
     val lift by animateFloatAsState(if (hasContent) 1f else 0f, spring(0.86f, 260f), label = "lift")
 
     // The main screen sits between the camera (on its left) and the library (on its right):
@@ -246,23 +248,22 @@ fun HomeScreen(nav: Nav, talkAbout: Long?, onTalkHandled: () -> Unit) {
                         onSettings = { nav.go(Screen.Settings(ai = true)) },
                         missing = missing,
                         nudge = nudge,
-                        onStop = mind::stopWork,
                         onCancel = mind::cancelListening,
                     )
                     Spacer(Modifier.height(24.dp))
                 }
             }
 
-            if (pending > 0 && state !is MindState.Working && state !is MindState.Listening) {
-                Text(
-                    if (pending == 1) t(R.string.pending_one) else t(R.string.pending_many, pending),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = NoveloColors.TextMuted,
-                    modifier = Modifier
-                        .align(Alignment.CenterHorizontally)
-                        .clip(CircleShape)
-                        .clickable { mind.retryPending(byHand = true) }
-                        .padding(horizontal = 14.dp, vertical = 8.dp),
+            // The line: what is going through (a touch stops it), what waits its turn or the
+            // internet, what stopped (send again · throw away; a swipe throws it away too).
+            AnimatedVisibility(line.isNotEmpty(), enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+                LineTray(
+                    line = line,
+                    going = going,
+                    onStop = mind::stopWork,
+                    onRetry = { mind.retry(it) },
+                    onDiscard = { mind.discard(it) },
+                    onSettings = { nav.go(Screen.Settings(ai = true)) },
                 )
             }
             // Photos taken or picked wait here: sent as they are, or with what she says or writes next.
@@ -444,7 +445,6 @@ private fun StatusArea(
     onReading: () -> Unit = {},
     onDiscard: (Long) -> Unit,
     onSettings: () -> Unit,
-    onStop: () -> Unit,
     onCancel: () -> Unit,
     missing: List<Missing> = emptyList(),
     nudge: Int = 0,
@@ -454,7 +454,8 @@ private fun StatusArea(
         contentKey = { s ->
             when (s) {
                 is MindState.Listening -> "listening"
-                is MindState.Working -> "working"
+                // The work shows in the line, not here.
+                is MindState.Working -> "idle"
                 is MindState.Answer -> "answer-${s.captureId}"
                 is MindState.Problem -> "problem-${s.captureId}-${s.message}"
                 MindState.Idle -> "idle"
@@ -468,7 +469,7 @@ private fun StatusArea(
     ) { s ->
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
             when (s) {
-                MindState.Idle -> if (missing.isNotEmpty()) ReadyCard(missing, nudge, onSettings) else Text(
+                MindState.Idle, is MindState.Working -> if (missing.isNotEmpty()) ReadyCard(missing, nudge, onSettings) else Text(
                     if (hintSeen) t(R.string.invite) else t(R.string.hint_first),
                     style = com.villamediana.novelo.ui.theme.NoveloText.Invite,
                     color = NoveloColors.TextMuted,
@@ -476,7 +477,6 @@ private fun StatusArea(
                     modifier = Modifier.padding(top = 8.dp),
                 )
                 is MindState.Listening -> ListeningText(s, inCancelZone, onCancel)
-                is MindState.Working -> WorkingText(s, onStop)
                 is MindState.Answer -> AnswerView(s, entries, onOpen, onToggle, onDismiss, onOpenMed, onReading)
                 is MindState.Problem -> ProblemView(s, onRetry, onDiscard, onSettings, onDismiss)
             }
@@ -527,67 +527,6 @@ internal fun ListeningText(s: MindState.Listening, inCancelZone: Boolean, onCanc
     }
 }
 
-@Composable
-internal fun WorkingText(s: MindState.Working, onStop: () -> Unit) {
-    Text(stageText(s), style = MaterialTheme.typography.labelLarge, color = NoveloColors.Accent)
-    // Where it is in it (a piece of the recording, a photo, a file): a stitch each, the done ones filled.
-    if (s.of in 2..MAX_STEP_DOTS) {
-        Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-            repeat(s.of) { i ->
-                val on = i < s.step
-                Box(
-                    Modifier
-                        .width(if (i == s.step - 1) 16.dp else 6.dp)
-                        .height(6.dp)
-                        .clip(CircleShape)
-                        .background(if (on) NoveloColors.Accent else NoveloColors.Accent.copy(alpha = 0.22f)),
-                )
-            }
-        }
-    }
-    // The words only while they are being heard (the newest ones: the start is known, the end shows
-    // it is going); once it organizes, the screen is only what it is doing.
-    if (s.stage == Stage.HEARING && s.text.isNotBlank()) {
-        Spacer(Modifier.height(12.dp))
-        Said(tail(s.text), maxLines = 8)
-    }
-    // Taking too long: a stop. What was said stays, to try again or discard.
-    if (s.captureId != 0L) {
-        Spacer(Modifier.height(14.dp))
-        StopPill(onStop)
-        // It goes on with the app minimized or closed (and says when it is done).
-        Spacer(Modifier.height(12.dp))
-        Text(
-            t(R.string.work_away),
-            style = MaterialTheme.typography.bodySmall,
-            color = NoveloColors.TextFaint,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(horizontal = 24.dp),
-        )
-    }
-}
-
-/** "Parar": a quiet pill — a small solid square and the word, never an empty box on its own. */
-@Composable
-private fun StopPill(onStop: () -> Unit) {
-    val interaction = remember { MutableInteractionSource() }
-    Row(
-        Modifier
-            .pressScale(interaction, 0.95f)
-            .clip(CircleShape)
-            .background(NoveloColors.Surface2)
-            .clickable(interactionSource = interaction, indication = null, onClickLabel = t(R.string.stop), onClick = onStop)
-            .semantics { contentDescription = t(R.string.stop) }
-            .padding(start = 14.dp, end = 16.dp, top = 9.dp, bottom = 9.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(Modifier.size(9.dp).clip(RoundedCornerShape(2.dp)).background(NoveloColors.TextMuted))
-        Spacer(Modifier.width(8.dp))
-        Text(t(R.string.stop), style = MaterialTheme.typography.labelLarge, color = NoveloColors.TextMuted)
-    }
-}
-
 /** What it is doing, in words: the stage, and which piece, photo or file of how many. */
 internal fun stageText(s: MindState.Working): String {
     val counted = s.of > 1 && s.step in 1..s.of
@@ -602,8 +541,6 @@ internal fun stageText(s: MindState.Working): String {
     }
 }
 
-/** More than this many and the stitches would crowd the line: only the words say it. */
-private const val MAX_STEP_DOTS = 9
 
 /** The end of a long text, from a whole word, after "…". */
 fun tail(text: String, max: Int = 340): String {

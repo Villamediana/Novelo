@@ -25,6 +25,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
@@ -63,6 +65,42 @@ sealed interface MindState {
 
     data class Problem(val captureId: Long?, val need: Need?, val message: String, val said: String? = null) : MindState
 }
+
+/**
+ * Something said (or written, a photo, a file) that didn't go all the way yet: a row of the line
+ * under the button. The button stays free — she says the next thing while these go, one by one.
+ */
+data class Waiting(
+    val id: Long,
+    val kind: Kind,
+    /** What she said or wrote, as far as it is known (a file's name; nothing for a photo). */
+    val text: String,
+    val where: Where,
+    /** Why it stopped ([Where.LATER], [Where.STOPPED], [Where.FAILED]). */
+    val message: String? = null,
+    /** Something in Ajustes is missing for it to go. */
+    val need: Need? = null,
+    /** How long a recording is: what tells one from another while its words aren't known yet. */
+    val durationMs: Long = 0,
+) {
+    enum class Kind { VOICE, TEXT, PHOTO, FILE }
+
+    enum class Where {
+        /** Going through now (see [Mind.going] for what it is doing). */
+        GOING,
+        /** Waiting for its turn. */
+        IN_LINE,
+        /** No network (or the server full): it goes by itself when there is one. */
+        LATER,
+        /** Stopped by hand: only a hand sends it again. */
+        STOPPED,
+        /** It couldn't go: to send again or throw away. */
+        FAILED,
+    }
+}
+
+/** The phone has no network: what needs one waits, without being tried. */
+class Offline : IOException("offline")
 
 /** Hearing what she said, reading a photo's text, looking at photos, seeing what files are, organizing, looking things up. */
 enum class Stage { HEARING, READING, SEEING, FILES, THINKING, LOOKING }
@@ -135,6 +173,8 @@ class Mind(
     private val clock: () -> Long = System::currentTimeMillis,
     /** A capture stopped for lack of network: what was waiting goes by itself when it comes back. */
     private val offline: () -> Unit = {},
+    /** False when the phone has no network at all: what needs one isn't even tried (it waits, and says so at once). */
+    private val online: () -> Boolean = { true },
     /** The beginning of a file sent (never the whole of it), for Omni to say what it is. */
     private val peek: FilePeek = NoPeek,
     /** What a photo shows and what a file is, said on the phone (Omni): kept for the search, and given to the model. */
@@ -149,7 +189,23 @@ class Mind(
     private val longest: Long = LONGEST_MS,
 ) {
     private val _state = MutableStateFlow<MindState>(MindState.Idle)
+    /**
+     * What the main screen shows around the button: nothing, the microphone open, an answer, or a
+     * word for her. Never the work going on: that is the line's ([line], [going]) — the button is free.
+     */
     val state: StateFlow<MindState> = _state
+
+    private val _told = MutableStateFlow<MindState>(MindState.Idle)
+    /** Everything said along the way, the work and what couldn't go included (what the "done" notification reads). */
+    val told: StateFlow<MindState> = _told
+
+    private val _going = MutableStateFlow<MindState.Working?>(null)
+    /** What the capture going through now is at (its stage, the words heard so far); null when nothing is. */
+    val going: StateFlow<MindState.Working?> = _going
+
+    private val _line = MutableStateFlow<List<Waiting>>(emptyList())
+    /** What didn't go all the way yet, the oldest first: going, waiting its turn, waiting for a network or for a hand. */
+    val line: StateFlow<List<Waiting>> = _line
 
     /** Kept in a folder of their own: a photo waiting is still there after the app closes. */
     private val stagedDir = File(dir, ".staged")
@@ -170,6 +226,22 @@ class Mind(
 
     private val queue = Channel<Long>(Channel.UNLIMITED)
     private val queued = HashSet<Long>()
+
+    /** Asked to go again while they were going through (a run ending as the network comes back): they go once more if that run didn't make it. */
+    private val again = HashSet<Long>()
+
+    /** Just said, still being saved (the piece heard when she stopped is finishing): in line, but not to be sent yet. */
+    private val holding = HashSet<Long>()
+
+    /** Waiting for a network (or for the server to have room): they go by themselves. */
+    private val later = java.util.Collections.synchronizedSet(HashSet<Long>())
+
+    /** What each one that couldn't go is missing in Ajustes. */
+    private val needs = java.util.concurrent.ConcurrentHashMap<Long, Need>()
+
+    /** An answer that came while the microphone was open: it shows when she is done talking. */
+    @Volatile private var missed: MindState.Answer? = null
+    private val refreshing = kotlinx.coroutines.sync.Mutex()
 
     /** Photos that went through in another one's run ([together]): their own turn in line has nothing left to do. */
     private val carried = HashSet<Long>()
@@ -198,6 +270,7 @@ class Mind(
             for (id in queue) {
                 current = id
                 synchronized(queued) { queued.remove(id) }
+                refreshPending()
                 try {
                     val j = scope.launch { runCatching { process(id) } }
                     val halt = CompletableDeferred<Unit>()
@@ -215,7 +288,13 @@ class Mind(
                     job = null
                     stop = null
                     current = null
+                    _going.value = null
                     end()
+                }
+                // Asked again while this run was ending: it didn't make it, so it goes once more.
+                if (synchronized(queued) { again.remove(id) }) {
+                    val c = runCatching { db.captures().get(id) }.getOrNull()
+                    if (c != null && c.state != Capture.DONE && c.state != Capture.STOPPED) enqueue(id)
                 }
                 refreshPending()
             }
@@ -236,8 +315,6 @@ class Mind(
         @Volatile var talking = true
         /** The warnings before [longest] already given (how many of [CLOSING_SOON]). */
         var warned = 0
-        /** After she stopped: the text as it comes, on the screen. */
-        @Volatile var show: ((String) -> Unit)? = null
     }
 
     @Volatile private var live: Live? = null
@@ -273,10 +350,11 @@ class Mind(
     private suspend fun listenAhead(l: Live) {
         while (l.talking) {
             delay(AHEAD_EVERY_MS)
-            val next = runCatching { hearing.ahead(l.file, l.heard, l.at) { partial -> l.show?.invoke(partial) } }.getOrNull() ?: continue
+            // No network and the ear is out there: nothing to try now (it is heard when it goes).
+            if (!online() && runCatching { hearing.needsNet() }.getOrDefault(false)) continue
+            val next = runCatching { hearing.ahead(l.file, l.heard, l.at) }.getOrNull() ?: continue
             l.heard = next.first
             l.at = next.second
-            l.show?.invoke(l.heard.text)
         }
     }
 
@@ -322,6 +400,7 @@ class Mind(
             stopped?.first?.delete()
             mic.release()
             _state.value = MindState.Idle
+            showMissed()
             // Closed by itself and she said nothing at all: nothing to hear; she is told why it closed.
             if (byItself && stopped != null) show(MindState.Problem(null, null, t(R.string.closed_quiet, (quietFor / 60_000).coerceAtLeast(1))))
             return
@@ -330,29 +409,41 @@ class Mind(
         // When she said it: what "daqui a 10 minutos" counts from (not when the last piece was heard).
         val saidAt = clock()
         // From here it is work: the app keeps running for it before the microphone lets go (so the
-        // background never has a gap), and the screen leaves "ouvindo" right now — the button is
-        // free again and the progress shows (while it said "ouvindo", nothing else could show).
+        // background never has a gap). And the button is free at once: what she said goes to the
+        // line under it, and she can say the next thing while it goes.
         begin()
         mic.release()
-        // What was heard while she talked shows at once.
-        _state.value = MindState.Working(0L, Stage.HEARING, l?.heard?.text.orEmpty())
+        _state.value = MindState.Idle
+        showMissed()
         scope.launch {
             try {
-                // The piece being heard when she stopped is finished (it isn't heard twice), then the rest goes on from there.
-                if (l != null) {
-                    l.show = { text -> show(MindState.Working(0L, Stage.HEARING, text)) }
-                    l.job.join()
-                    l.show = null
-                }
-                val h = l?.heard ?: Heard()
+                val first = l.heard
                 val id = db.captures().insert(
                     Capture(
                         createdAt = saidAt, source = "voice", audioPath = file.path, durationMs = ms, state = Capture.RECORDED, focusEntryId = s.focusId,
-                        heard = h.text.takeIf { it.isNotEmpty() }, heardPieces = h.pieces, heardBy = h.by,
+                        heard = first.text.takeIf { it.isNotEmpty() }, heardPieces = first.pieces, heardBy = first.by,
                     ),
                 )
-                attach(id)
-                show(MindState.Working(id, Stage.HEARING, ""))
+                synchronized(queued) { holding += id }
+                try {
+                    attach(id)
+                    refreshPending()
+                    // The piece being heard when she stopped is finished (it isn't heard twice), then
+                    // the rest goes on from there. An ear out on the network isn't waited for long,
+                    // and not at all without one: that piece is heard again when its turn comes.
+                    val far = runCatching { hearing.needsNet() }.getOrDefault(false)
+                    when {
+                        !far -> l.job.join()
+                        !online() -> l.job.cancel()
+                        else -> withTimeoutOrNull(AHEAD_WAIT_MS) { l.job.join() } ?: l.job.cancel()
+                    }
+                    val h = l.heard
+                    if (h != first) db.captures().get(id)?.let { c ->
+                        db.captures().update(c.copy(heard = h.text.takeIf { it.isNotEmpty() }, heardPieces = h.pieces, heardBy = h.by))
+                    }
+                } finally {
+                    synchronized(queued) { holding -= id }
+                }
                 enqueue(id)
             } finally {
                 end()
@@ -368,6 +459,14 @@ class Mind(
         recorder.stop()?.first?.delete()
         mic.release()
         _state.value = MindState.Idle
+        showMissed()
+    }
+
+    /** She is done talking: the answer that came meanwhile, if one did. */
+    private fun showMissed() {
+        val a = missed ?: return
+        missed = null
+        show(a)
     }
 
     /** Something written instead of said: it is already text, so it goes straight to organizing. */
@@ -375,12 +474,10 @@ class Mind(
         val said = text.trim()
         if (said.isEmpty()) return
         begin()
-        show(MindState.Working(0L, Stage.THINKING, said, typed = true))
         scope.launch {
             try {
                 val id = db.captures().insert(Capture(createdAt = clock(), source = Capture.TEXT, transcript = said, state = Capture.RECORDED))
                 attach(id)
-                show(MindState.Working(id, Stage.THINKING, said, typed = true))
                 enqueue(id)
             } finally {
                 end()
@@ -485,7 +582,6 @@ class Mind(
         scope.launch {
             try {
                 val made = files.map { (file, at) -> db.captures().insert(Capture(createdAt = at, source = "photo", imagePath = file.path, state = Capture.RECORDED)) }
-                show(MindState.Working(made.first(), Stage.READING, "", photo = true))
                 made.forEach(::enqueue)
             } finally {
                 end()
@@ -499,9 +595,8 @@ class Mind(
         begin()
         scope.launch {
             try {
-                list.forEachIndexed { i, s ->
+                list.forEach { s ->
                     val id = db.captures().insert(fileCapture(s, Capture.RECORDED, null))
-                    if (i == 0) show(MindState.Working(id, Stage.THINKING, s.name.orEmpty()))
                     enqueue(id)
                 }
             } finally {
@@ -523,14 +618,8 @@ class Mind(
 
     fun retry(captureId: Long) {
         scope.launch {
-            var c = db.captures().get(captureId) ?: return@launch
-            if (c.tries > 0 && !busy(c.id)) c = c.copy(tries = 0).also { db.captures().update(it) }
-            val stage = when {
-                c.source == Capture.FILE -> Stage.THINKING
-                c.transcript == null -> if (c.source == "photo") Stage.READING else Stage.HEARING
-                else -> Stage.THINKING
-            }
-            show(MindState.Working(c.id, stage, c.transcript ?: c.fileName ?: c.heard.orEmpty(), c.source == "photo", c.source == Capture.TEXT))
+            val c = db.captures().get(captureId) ?: return@launch
+            if (c.tries > 0 && !busy(c.id)) db.captures().update(c.copy(tries = 0))
             enqueue(captureId)
         }
     }
@@ -546,10 +635,24 @@ class Mind(
     fun retryPending(byHand: Boolean = false) {
         scope.launch {
             db.captures().unfinished().forEach { c ->
+                // Just said and still being saved: it goes by itself in a moment.
+                if (synchronized(queued) { c.id in holding }) return@forEach
                 val waitsForHand = c.state == Capture.STOPPED || c.tries >= MAX_TRIES
                 if (waitsForHand && !byHand) return@forEach
                 if (byHand && c.tries > 0 && !busy(c.id)) db.captures().update(c.copy(tries = 0))
                 enqueue(c.id)
+            }
+        }
+    }
+
+    /** A network again: what was waiting for one goes, in the order it was said. */
+    fun networkBack() {
+        val waiting = synchronized(later) { later.toList() }.sorted()
+        if (waiting.isEmpty()) return
+        scope.launch {
+            waiting.forEach { id ->
+                val c = db.captures().get(id) ?: return@forEach
+                if (c.state != Capture.DONE && c.state != Capture.STOPPED) enqueue(id)
             }
         }
     }
@@ -576,6 +679,10 @@ class Mind(
 
     /** Drops a capture that couldn't go through (and its audio or photo). */
     fun discard(captureId: Long) {
+        // Going through right now: it is stopped first.
+        if (current == captureId) stopWork()
+        later -= captureId
+        needs -= captureId
         scope.launch {
             db.captures().get(captureId)?.let { c ->
                 c.audioPath?.let { File(it).delete() }
@@ -590,7 +697,10 @@ class Mind(
     }
 
     fun dismiss() {
-        if (_state.value is MindState.Answer || _state.value is MindState.Problem) _state.value = MindState.Idle
+        if (_state.value is MindState.Answer || _state.value is MindState.Problem) {
+            _state.value = MindState.Idle
+            _told.compareAndSet(_told.value.takeIf { it is MindState.Answer || (it is MindState.Problem && it.captureId == null) } ?: return, MindState.Idle)
+        }
     }
 
     /** She is reading the answer (a touch on it): its time on the screen starts again. */
@@ -613,11 +723,18 @@ class Mind(
     }
 
     private fun enqueue(id: Long) {
-        if (current == id) return // already going through
+        if (current == id) {
+            // Already going through; if that run is just ending without making it, it goes again.
+            synchronized(queued) { again += id }
+            return
+        }
         val fresh = synchronized(queued) { queued.add(id) }
         if (fresh) {
+            later -= id
+            needs -= id
             begin()
             queue.trySend(id)
+            scope.launch { refreshPending() }
         }
     }
 
@@ -625,9 +742,31 @@ class Mind(
      * Waiting = not done and not being handled now. Its saved state doesn't tell: a capture left
      * "transcribing" by an app that was closed halfway is waiting too.
      */
-    private suspend fun refreshPending() {
-        val busy = synchronized(queued) { queued.toSet() } + listOfNotNull(current)
-        _pending.value = withContext(Dispatchers.IO) { db.captures().unfinished().count { it.id !in busy } }
+    private suspend fun refreshPending() = refreshing.withLock {
+        val all = withContext(Dispatchers.IO) { db.captures().unfinished() }
+        val (inLine, held) = synchronized(queued) { queued.toSet() to holding.toSet() }
+        val now = current
+        val busy = inLine + listOfNotNull(now)
+        _pending.value = all.count { it.id !in busy }
+        _line.value = all.filter { it.partOf == null }.map { c ->
+            val where = when {
+                c.id == now -> Waiting.Where.GOING
+                c.id in inLine || c.id in held -> Waiting.Where.IN_LINE
+                c.state == Capture.STOPPED -> Waiting.Where.STOPPED
+                c.id in later -> Waiting.Where.LATER
+                c.error != null || c.tries >= MAX_TRIES -> Waiting.Where.FAILED
+                // Left on its way by an app that closed: it goes again as the app opens.
+                else -> Waiting.Where.IN_LINE
+            }
+            val kind = when (c.source) {
+                "photo" -> Waiting.Kind.PHOTO
+                Capture.TEXT -> Waiting.Kind.TEXT
+                Capture.FILE -> Waiting.Kind.FILE
+                else -> Waiting.Kind.VOICE
+            }
+            val still = where != Waiting.Where.GOING && where != Waiting.Where.IN_LINE
+            Waiting(c.id, kind, (if (kind == Waiting.Kind.FILE) c.fileName else c.transcript ?: c.heard).orEmpty(), where, c.error.takeIf { still }, needs[c.id].takeIf { still }, c.durationMs)
+        }
     }
 
     // ------------------------------------------------------------------ the path
@@ -665,6 +804,8 @@ class Mind(
                     said = photos.text(File(c.imagePath!!))
                 } else {
                     say(MindState.Working(id, Stage.HEARING, c.heard.orEmpty()))
+                    // The ear is out on the network and there is none: it waits, without trying.
+                    if (hearing.needsNet() && !online()) throw Offline()
                     // Which piece of how many, on the screen while it goes.
                     var piece = 0
                     var pieces = 0
@@ -681,6 +822,8 @@ class Mind(
                     ) { partial -> say(MindState.Working(id, Stage.HEARING, partial, step = piece, of = pieces)) }
                 }
                 c = c.copy(transcript = said).also { db.captures().update(it) }
+                // The line has her words from here on.
+                scope.launch { refreshPending() }
             }
             if (!photo && said.isBlank()) {
                 c.audioPath?.let { File(it).delete() }
@@ -719,6 +862,8 @@ class Mind(
             }
             say(MindState.Working(id, Stage.THINKING, if (file) c.fileName.orEmpty() else said, photo, typed))
             if (file) c = db.captures().get(id) ?: c
+            // Who thinks is out on the network: without one it waits (already heard), and goes by itself.
+            if (thinking.needsNet() && !online()) throw Offline()
             val plan = think(c, said, photo, typed, sent, seen, fileAlone = file, shows = shows)
             // The numbers the model gave each photo and file are theirs, in the order it saw them.
             val filesSent = if (file) listOf(c) else sentFiles
@@ -766,13 +911,13 @@ class Mind(
                 // The Novelo's server answered, and it wasn't an answer: its models all taken (it goes
                 // again by itself in a moment), today's limit, or something else of its own.
                 is com.villamediana.novelo.server.ServerException -> when (e.code) {
-                    "busy" -> t(R.string.novelo_busy).also { offline() }
+                    "busy" -> t(R.string.novelo_busy).also { later += id; runCatching { offline() } }
                     "quota", "rate_limited" -> t(R.string.novelo_quota)
                     // The server just said the Novelo's intelligence is over for this phone.
                     "plan" -> t(R.string.need_novelo_ended)
                     else -> t(R.string.novelo_later)
                 }
-                is IOException -> t(R.string.offline_kept).also { offline() }
+                is IOException -> t(R.string.offline_kept).also { later += id; runCatching { offline() } }
                 else -> e.message ?: e.javaClass.simpleName
             }
             db.captures().update(c.copy(state = if (c.transcript == null) Capture.RECORDED else Capture.FAILED, error = msg, tries = 0))
@@ -1000,10 +1145,22 @@ class Mind(
     }
 
     private fun show(state: MindState) {
-        // A new recording on screen wins over the background work's progress.
-        if (_state.value is MindState.Listening) return
-        _state.value = state
-        if (passing(state)) fade(state)
+        _told.value = state
+        when {
+            // The work is the line's: the screen around the button stays as it is.
+            state is MindState.Working -> _going.value = state
+            // What couldn't go stays in the line too (to send again or throw away), with why.
+            state is MindState.Problem && state.captureId != null -> {
+                state.need?.let { needs[state.captureId] = it }
+                scope.launch { refreshPending() }
+            }
+            // A new recording on screen wins; the answer that comes meanwhile shows when she is done.
+            _state.value is MindState.Listening -> if (state is MindState.Answer) missed = state
+            else -> {
+                _state.value = state
+                if (passing(state)) fade(state)
+            }
+        }
     }
 
     companion object {
@@ -1030,6 +1187,9 @@ class Mind(
 
         /** How often, while she talks, it looks for a piece that is already whole. */
         const val AHEAD_EVERY_MS = 1_500L
+
+        /** When she stops, a piece being heard out on the network is waited for this long at most. */
+        const val AHEAD_WAIT_MS = 6_000L
 
         /** Runs that never ended (the app fell in the middle) before it waits for a hand. */
         const val MAX_TRIES = 3

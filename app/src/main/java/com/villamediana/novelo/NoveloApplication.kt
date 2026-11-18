@@ -44,7 +44,9 @@ class NoveloApplication : Application() {
         if (graph.updates.enabled) runCatching { UpdateCheckWorker.schedule(this) }
         runCatching { UpdateIdleWorker.watch(this, graph.updates) }
         // Done while she was away (the app minimized or closed): a notification says so.
-        runCatching { WorkDone.watch(this, graph.scope, graph.mind.state) }
+        runCatching { WorkDone.watch(this, graph.scope, graph.mind.told) }
+        // The network is back (the app open): what waited for it in the line goes, one by one.
+        runCatching { graph.net.whenBack { graph.mind.networkBack() } }
     }
 
     companion object {
