@@ -72,6 +72,11 @@ data class Entry(
     @androidx.room.ColumnInfo(defaultValue = "[]") val doneTimes: String = "[]",
     /** Its reminder rings as an alarm (until she stops it) or only notifies (1.76: on unless she says otherwise). */
     @androidx.room.ColumnInfo(defaultValue = "1") val alarm: Boolean = true,
+    /**
+     * Notes: what was understood, in points — one per line ("Em tópicos", 1.80). The model writes it
+     * for a long note with several points; empty: none (a short note, a task, the diary).
+     */
+    @androidx.room.ColumnInfo(defaultValue = "") val summary: String = "",
 ) {
     val kindEnum: Kind get() = Kind.of(kind) ?: Kind.NOTE
     val statusEnum: Status? get() = Status.of(status)

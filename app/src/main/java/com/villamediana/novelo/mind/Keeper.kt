@@ -121,6 +121,8 @@ class Keeper(
                 doneAt = if (status == Status.DONE) now else null,
                 captureId = captureId,
                 category = if (kind == Kind.TASK) category(item.category) else null,
+                // A note the model saw worth it: its points too, "Em tópicos" (a task, the diary: never).
+                summary = if (kind == Kind.NOTE) Summary.keep(item.summary) else "",
             )
             val id = db.entries().insert(entry)
             known += id
@@ -158,6 +160,13 @@ class Keeper(
             change.body?.takeIf { it.isNotBlank() }?.let { e = e.copy(body = it.trim()) }
             // One text per item: what is new joins it (no history kept apart that says the same again).
             change.append?.takeIf { it.isNotBlank() }?.let { e = e.copy(body = if (e.kindEnum == Kind.DIARY) DayDiary.merge(e.body, it) else joined(e.body, it)) }
+            // A note's points, whole again; its text written again without them: the old ones went with it.
+            // Only joined to (news) without them: the ones it had still hold.
+            if (e.kindEnum == Kind.NOTE) {
+                val points = Summary.keep(change.summary)
+                val rewritten = !change.body.isNullOrBlank() && e.body != old.body
+                if (points.isNotEmpty()) e = e.copy(summary = points) else if (rewritten) e = e.copy(summary = "")
+            }
             Brain.time(change.due, z, base)?.let { (ms, hasTime) -> e = e.copy(dueAt = ms, dueHasTime = hasTime) }
             ahead(change.remindAt)?.let { e = e.copy(remindAt = it) }
             ahead(change.checkInAt)?.let { e = e.copy(checkInAt = it) }

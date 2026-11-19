@@ -244,6 +244,8 @@ fun EntryScreen(nav: Nav, id: Long) {
             // one "Toque pra ver" in the middle of all of it (the whole of it is the place to tap).
             Box(Modifier.fillMaxWidth()) {
                 Column(Modifier.fillMaxWidth()) {
+                    // A long note: what was understood, in points, above its text (1.80).
+                    if (kind == Kind.NOTE) NotePoints(e.summary, hidden = !revealed)
                     Box(
                         Modifier.fillMaxWidth().then(
                             if (diary) Modifier.clip(page).background(NoveloColors.Surface).stitched(page, StitchColor, inset = 8.dp).padding(horizontal = 22.dp, vertical = 22.dp)

@@ -49,6 +49,35 @@ Se a API recusa o pedido (400/415/422), `Thinking` tenta de novo sem a imagem e 
 `response_format`. Lembrete que venceu com o celular desligado toca quando ele liga; tarefa feita
 perde o lembrete.
 
+## Em tópicos (1.80.0, 2026-11-19)
+
+Quem testou gostou do texto já corrigido, mas queria os assuntos mais organizados. A nota ganha, em cima do
+texto, os pontos do que ficou entendido ("Em tópicos"), quando o modelo vê que valem pra ela; o texto continua
+sendo dela (corrigido, editável, onde a notícia entra) e a fala crua segue dobrada em "O que você disse". Só nota:
+o diário é a voz dela ("não resuma") e a tarefa já tem etapas.
+
+- **Modelo**: `summary` no `create` (e no `update`) — uma lista de frases curtas, uma por ponto, começando pelo
+  assunto quando ajuda ("Local: …"). **Ele decide se a nota pede tópicos** (quando ajudam a ver a nota de
+  relance; uma senha, um dado, uma ideia não pedem) — nenhum mínimo de palavras ou de pontos no código, a pedido
+  do Miguel. No mesmo pedido de sempre: nenhuma chamada a mais. O prompt também pede a nota com mais de um
+  assunto em parágrafos, um por assunto.
+- **Leitura** (`Points` no `Brain`): lista, um texto com um ponto por linha ou com forma (`{"assunto", "pontos"}`
+  vira "assunto: ponto") — nunca derruba a resposta inteira.
+- **O código só limpa** (`mind/Summary.keep`): marcadores, números e `**` fora, repetidos e vazios fora; um teto
+  de 30 pontos de até 300 caracteres só pra um modelo descontrolado não encher a tela.
+- **Guardado** em `entries.summary` (banco v17, AutoMigration, padrão `""`), um ponto por linha. O backup leva no
+  `backup.json` (entidade serializável) e no Markdown da nota (`**Em tópicos**` + lista); compartilhar a nota leva
+  também; a sincronização leva a coluna sozinha (o celular antigo ignora coluna que não conhece).
+- **Atualizado** (`Keeper`): notícia com `summary` troca os pontos inteiros (o modelo vê os de agora no contexto,
+  `· em tópicos: a | b`, até 400 caracteres, só em nota não sensível e na linha longa); notícia só juntada sem
+  pontos mantém os que há; texto reescrito (`body`) sem pontos apaga os velhos. Editar à mão não
+  mexe nos pontos (nada de chamada a cada letra).
+- **Tela** (`ui/entry/NotePoints`): cartão em `Surface` acima do texto, rótulo na serifa inclinada, bolinha na
+  cor de destaque, o assunto em semibold (`Summary.label`: antes de ":" nos primeiros 32 caracteres, nunca hora
+  como 10:30 nem link); selecionável; nota sensível ainda escondida: borrado junto com o texto.
+- **Novelo Web**: o mesmo em `web/src/core/summary.js`, `brain.js`, `keeper.js` e `ui/entry.jsx` (`WebParityTest`
+  cobre o contexto, a leitura e os casos do `Keeper`).
+
 ## Novelo Web (1.79.0, 2026-11-18)
 
 Pedido do Miguel: o mesmo Novelo no computador, ligado ao celular por QR code, tudo sincronizado nos dois

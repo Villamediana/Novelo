@@ -174,6 +174,13 @@ object Readable {
             if (e.sensitive) add("sensível")
         }
         if (about.isNotEmpty()) append(about.joinToString(" · ")).append("\n\n")
+        // A long note's points ("Em tópicos"), above its text as on its page.
+        val points = if (e.kindEnum == Kind.NOTE) com.villamediana.novelo.mind.Summary.read(e.summary) else emptyList()
+        if (points.isNotEmpty()) {
+            append("**Em tópicos**\n\n")
+            points.forEach { append("- ").append(it).append('\n') }
+            append('\n')
+        }
         if (e.body.isNotBlank()) append(e.body.trim()).append("\n\n")
         val steps = Steps.read(e.steps)
         if (steps.isNotEmpty()) {
