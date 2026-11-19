@@ -76,7 +76,13 @@ class WebParityTest {
         Entry(id = 1, kind = "task", title = "Fechar contrato da torre de Campinas", body = "Falta a assinatura do proprietário e a planta atualizada.", status = "doing", steps = """[{"text":"pedir planta","done":true},{"text":"assinatura"}]""", dueAt = now + 2 * day, dueHasTime = false, createdAt = now - 3 * day, updatedAt = now - day, category = "Trabalho", checkInAt = now + day),
         Entry(id = 2, kind = "task", title = "Pagar o IPVA", status = "todo", remindAt = now + 3 * 3_600_000, createdAt = now - day, updatedAt = now - day, category = "Casa"),
         Entry(id = 3, kind = "note", title = "Senha do wifi", body = "girassol", sensitive = true, createdAt = now - 5 * day, updatedAt = now - 5 * day),
-        Entry(id = 4, kind = "note", title = "Ideias pro aniversário da Ana", body = "Piquenique no parque, bolo de cenoura.", createdAt = now - 2 * day, updatedAt = now - 2 * day),
+        Entry(
+            id = 4, kind = "note", title = "Ideias pro aniversário da Ana",
+            body = "Piquenique no parque, bolo de cenoura. Pensei em fazer no sábado de manhã, antes de esquentar, e chamar os amigos da escola dela.\n\n" +
+                "Se chover, a gente faz no salão do prédio, que precisa reservar com o síndico com uma semana de antes. Levar a toalha xadrez e a caixa de som.",
+            summary = "Piquenique no parque, sábado de manhã\nBolo de cenoura\nSe chover: o salão do prédio (reservar com o síndico)",
+            createdAt = now - 2 * day, updatedAt = now - 2 * day,
+        ),
         Entry(id = 5, kind = "diary", title = "Quarta-feira, 11 de novembro", body = "Fui correr cedo no parque.", createdAt = now - 3_600_000, updatedAt = now - 3_600_000),
         Entry(id = 6, kind = "task", title = "Comida dos meninos", status = "todo", repeat = """{"every":"day","time":"10:00","times":["10:00","14:00","20:00"]}""", remindAt = now + 6 * 3_600_000, occursFrom = now - 2 * day - 4 * 3_600_000 - 1_800_000, doneTimes = "[]", createdAt = now - 3 * day, updatedAt = now - day),
         Entry(id = 7, kind = "task", title = "Mandar o relatório", status = "todo", dueAt = now - 2 * day, createdAt = now - 4 * day, updatedAt = now - 4 * day, category = "Trabalho"),
@@ -185,9 +191,16 @@ class WebParityTest {
                 val plans = listOf(
                     """{"reply":"ok","create":[{"kind":"task","title":"Ligar pro Pedro sobre o contrato","due":"2026-11-12T09:00","remind_at":"2026-11-12T08:45","steps":["achar o número","ligar"],"category":"trabalho","entities":[{"name":"Pedro","type":"person"},{"name":"Torre de Campinas","type":"project"}],"related":[1],"tags":["ligação"]},{"kind":"diary","title":"Dia corrido","body":"Fui correr cedo no parque.\n\nDepois fiquei o dia todo no contrato."},{"kind":"task","title":"Tomar água","remind_at":"+30m","repeat":{"every":"day","times":["09:00","15:00"]}}],"update":[{"id":1,"add_steps":["revisar cláusulas"],"steps_done":["assinatura"],"append":"O proprietário assinou."},{"id":2,"status":"done"},{"id":6,"status":"done"},{"id":4,"delete":true},{"id":7,"category":"Casa","due":"2026-11-13","repeat":{"every":"week","days":[2,4]}}],"categories":[{"name":"casa","to":"Lar"}],"meds":[{"id":1,"taken":true},{"name":"Dipirona","dose":"1 comprimido","strength":"500 mg","times":["08:00","20:00"],"end":"2026-11-14","person":"cooper"},{"id":1,"taken_at":["08:10"]}]}""",
                     """{"reply":"ok","meds":[{"name":"Amoxicilina","person":"Cooper","times":["09:00"],"every_hours":12},{"id":1,"taken_count":2},{"id":1,"untaken_at":["08:00"]},{"id":1,"end":"none"}],"update":[{"id":5,"append":"Fui correr cedo no parque.\n\nÀ noite vi um filme."},{"id":3,"title":"Senha do wifi de casa","body":"girassol-2026"}]}""",
+                    // "Em tópicos": a note's points, however the model writes them (a short note too, when it says so); never a task's;
+                    // news with them whole again; news without them keeps the ones there; the text written again without them, none.
+                    """{"reply":"ok","create":[{"kind":"note","title":"Viagem pra Floripa","body":"Vamos de 3 a 7 de dezembro, ficando num hotel perto da praia da Joaquina. O carro a gente aluga no aeroporto, que sai mais barato que levar o nosso.\n\nPreciso ver se o hotel aceita cachorro, porque o Cooper vai junto, e comprar protetor solar e um guarda-sol novo antes.","summary":"- Datas: 3 a 7 de dezembro\n- Hotel: perto da praia da Joaquina\n**Carro:** alugar no aeroporto\n- datas: 3 a 7 de dezembro\n3. Levar: protetor solar e guarda-sol"},{"kind":"note","title":"Placa do carro","body":"ABC1D23","summary":["Placa: ABC1D23","Cor: prata"]},{"kind":"task","title":"Reservar o hotel","summary":["a","b"]}],"update":[{"id":4,"append":"A Ana prefere bolo de chocolate.","summary":[{"assunto":"Festa","pontos":["piquenique no parque","sábado de manhã"]},{"tema":"Bolo","texto":"de chocolate"},"Se chover: o salão do prédio"]},{"id":1,"append":"Mais uma coisa.","summary":["a","b"]}]}""",
+                    """{"reply":"ok","update":[{"id":4,"append":"Mais uma coisa."},{"id":3,"summary":["Senha: girassol"]}]}""",
+                    """{"reply":"ok","update":[{"id":4,"body":"Desisti do piquenique, vamos só jantar fora."}]}""",
                 )
                 for (planText in plans) {
                     db.clearAllTables()
+                    // Each case from the same start: new rows numbered from the ones there, as on the page (AUTOINCREMENT remembers).
+                    db.openHelper.writableDatabase.execSQL("DELETE FROM sqlite_sequence")
                     all.forEach { db.entries().insert(it) }
                     db.meds().insert(med)
                     taken.forEach { db.meds().take(it) }

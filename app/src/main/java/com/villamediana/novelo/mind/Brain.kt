@@ -62,6 +62,32 @@ object Strings : kotlinx.serialization.json.JsonTransformingSerializer<List<Stri
     override fun transformDeserialize(element: kotlinx.serialization.json.JsonElement) = oneOrMany(element)
 }
 
+/**
+ * A note's points as the model may write them: a list, one text with a point per line, or with some
+ * shape ({"assunto": "Festa", "pontos": ["…"]} → "Festa: …"): always texts, never a reason for the
+ * whole answer to be lost.
+ */
+object Points : kotlinx.serialization.json.JsonTransformingSerializer<List<String>>(kotlinx.serialization.builtins.ListSerializer(kotlinx.serialization.serializer<String>())) {
+    override fun transformDeserialize(element: kotlinx.serialization.json.JsonElement): kotlinx.serialization.json.JsonElement =
+        kotlinx.serialization.json.JsonArray(flat(element).map { kotlinx.serialization.json.JsonPrimitive(it) })
+
+    private fun flat(e: kotlinx.serialization.json.JsonElement): List<String> = when (e) {
+        is kotlinx.serialization.json.JsonNull -> emptyList()
+        is kotlinx.serialization.json.JsonPrimitive -> listOf(e.content)
+        is kotlinx.serialization.json.JsonArray -> e.flatMap(::flat)
+        is kotlinx.serialization.json.JsonObject -> {
+            val head = e.values.filter { it is kotlinx.serialization.json.JsonPrimitive && it !is kotlinx.serialization.json.JsonNull }
+                .map { (it as kotlinx.serialization.json.JsonPrimitive).content.trim() }.filter { it.isNotEmpty() }.joinToString(": ")
+            val inner = e.values.filter { it is kotlinx.serialization.json.JsonArray || it is kotlinx.serialization.json.JsonObject }.flatMap(::flat)
+            when {
+                inner.isEmpty() -> listOf(head).filter { it.isNotEmpty() }
+                head.isEmpty() -> inner
+                else -> inner.map { "$head: $it" }
+            }
+        }
+    }
+}
+
 /** The same for ids ("show": 12). */
 object Longs : kotlinx.serialization.json.JsonTransformingSerializer<List<Long>>(kotlinx.serialization.builtins.ListSerializer(kotlinx.serialization.serializer<Long>())) {
     override fun transformDeserialize(element: kotlinx.serialization.json.JsonElement) = oneOrMany(element)
@@ -168,6 +194,8 @@ data class NewItem(
     val kind: String,
     val title: String,
     val body: String = "",
+    /** Notes: what was understood, in points ("Em tópicos"); one string with a point per line is read as them. */
+    @Serializable(with = Points::class) val summary: List<String> = emptyList(),
     @Serializable(with = Strings::class) val tags: List<String> = emptyList(),
     val entities: List<NamedTopic> = emptyList(),
     /** Tasks: the part of her life it belongs to. */
@@ -207,6 +235,8 @@ data class Change(
     val append: String? = null,
     /** Its whole text again, when what she said changes what the item is. */
     val body: String? = null,
+    /** Notes: their points again, whole (the ones still true and the new ones), when the text changed. */
+    @Serializable(with = Points::class) val summary: List<String> = emptyList(),
     /** Tasks: moved to this category. */
     val category: String? = null,
     val due: String? = null,
@@ -256,7 +286,8 @@ Ela também pode:
 - perguntar ou pedir pra ver coisas (o que tem pra hoje, quando falou de algo, qual era uma senha, como está um projeto, uma foto de algo): responda em "reply" usando só o que está no contexto e ponha em "show" os ids dos itens que respondem, em "show_photos" os números das fotos (foto#N) e em "show_meds" os números dos remédios (remédio#N) que respondem. Pergunta não cria item.
 
 Como preencher:
-- Use as palavras dela. Título curto (até ~8 palavras) que diz do que se trata — nunca o tipo do item. Corpo com os detalhes ditos, sem inventar nada.
+- Use as palavras dela. Título curto (até ~8 palavras) que diz do que se trata — nunca o tipo do item. Corpo com os detalhes ditos, sem inventar nada. Nota com mais de um assunto: um parágrafo por assunto (uma linha em branco entre eles, "\n\n").
+- summary (só em nota): os tópicos do que ficou entendido, quando eles ajudam a ver a nota de relance — você decide pela nota — uma lista de frases curtas, uma por ponto, na ordem dos assuntos, começando pelo assunto quando ajuda ("Local: a chácara do tio; se chover, o salão do prédio"). Só o que está no corpo, no idioma dela, sem inventar nem concluir nada. Quando a nota já se lê de uma olhada (uma senha, um dado, uma ideia), sem summary; tarefa e diário nunca têm. Quando o texto de uma nota que tem tópicos ("em tópicos: …" no contexto) muda, mande no "update" o "summary" inteiro de novo: os tópicos que continuam valendo e os novos.
 - Diário é dela: escreva em primeira pessoa, no idioma, no jeito e no tom em que ela falou, como se ela mesma tivesse escrito. Só tire repetições e hesitações; não reescreva no seu estilo nem resuma o que ela contou. Divida em parágrafos como ela dividiria escrevendo: cada vez que o relato passa pra outro assunto, outro momento ou outro lugar, um parágrafo novo (uma linha em branco entre eles, "\n\n").
 - A fala chega transcrita por máquina, e a transcrição às vezes ouve uma palavra errado (um nome de comida, de lugar, de pessoa, uma marca, um termo de outra língua que vira uma palavra parecida ou sem sentido). Quando o resto da frase deixa claro qual era a palavra que ela disse, escreva a certa; quando não dá pra ter certeza, deixe como veio — nunca invente.
 - Datas relativas (amanhã, sexta, daqui a duas semanas, às 3 da tarde) viram data absoluta a partir de AGORA, no formato AAAA-MM-DD ou AAAA-MM-DDTHH:MM. Sem data dita, null.
@@ -294,8 +325,8 @@ Responda somente com um objeto JSON. Um exemplo do jeito (só o que foi usado):
 {"reply": "...", "create": [{"kind": "task", "title": "...", "due": "AAAA-MM-DD"}], "update": [{"id": 12, "add_steps": ["..."]}]}
 Os campos que existem:
 - reply
-- create: [{kind (task, note ou diary), title, body, tags, entities [{name, type}], category, due, remind_at, alarm, repeat, check_in_at, steps, status, sensitive, related, photos [números], files [números]}]
-- update: [{id, status, steps_done, add_steps, title, append, body, category, due, remind_at, alarm, repeat, check_in_at, entities, delete, photos [números], files [números]}]
+- create: [{kind (task, note ou diary), title, body, summary, tags, entities [{name, type}], category, due, remind_at, alarm, repeat, check_in_at, steps, status, sensitive, related, photos [números], files [números]}]
+- update: [{id, status, steps_done, add_steps, title, append, body, summary, category, due, remind_at, alarm, repeat, check_in_at, entities, delete, photos [números], files [números]}]
 - categories: [{name, to}]
 - meds: [{id, name, strength, dose, amount, person, times, every_hours, days, start, end, notes, alarm, photos [números], taken, taken_at, taken_count, untaken_at, delete}]
 - search, period {from, to}, show, show_photos, show_meds, keep_audio
@@ -538,6 +569,10 @@ Os campos que existem:
         }
         val steps = Steps.read(e.steps)
         if (steps.isNotEmpty()) append(" · etapas: ").append(steps.joinToString(" ") { (if (it.done) "[x] " else "[ ] ") + it.text.take(40) })
+        // A note's points ("Em tópicos"): the whole of it in short, even when its text is cut below.
+        if (long && e.kindEnum == Kind.NOTE && !e.sensitive) Summary.read(e.summary).takeIf { it.isNotEmpty() }?.let { points ->
+            append(" · em tópicos: ").append(points.joinToString(" | ").take(SUMMARY_LINE))
+        }
         if (long && e.body.isNotBlank()) {
             val body = if (e.sensitive) e.body.take(160) else e.body.take(bodyMax)
             append(" — ").append(body.replace('\n', ' '))
@@ -653,6 +688,7 @@ ws     ::= [ \t\n]{0,20}
     private const val BEFORE_REPLY = 200
     private const val MAX_BEFORE_ITEMS = 6
     private const val FOCUS_BODY = 800
+    private const val SUMMARY_LINE = 400
 
     /** The most of a file's first page the model gets (a peek, never the document). */
     const val PEEK = 800

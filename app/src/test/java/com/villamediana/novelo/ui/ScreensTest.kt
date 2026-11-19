@@ -342,6 +342,29 @@ class ScreensTest {
     }
 
     @Test
+    fun aLongNoteShowsItsPointsAboveItsText() {
+        seed()
+        val body = "Pensei em fazer o aniversário da Ana na chácara do tio, mas se chover pode ser no salão do prédio.\n\n" +
+            "Seria no sábado dia 12, à tarde, umas quatro horas.\n\nPra comer, churrasco, e o bolo eu peço pra Dona Lúcia, que faz aquele de cenoura com chocolate que ela adora."
+        val points = listOf("Local: a chácara do tio; se chover, o salão do prédio", "Sábado, dia 12, às 16h", "Comida: churrasco; o bolo de cenoura com a Dona Lúcia")
+        val note = runBlocking {
+            graph.db.entries().insert(com.villamediana.novelo.data.Entry(kind = "note", title = "Aniversário da Ana", body = body, summary = com.villamediana.novelo.mind.Summary.write(points), createdAt = now, updatedAt = now))
+        }
+        val nav = Nav()
+        var open by androidx.compose.runtime.mutableLongStateOf(note)
+        compose.setContent { NoveloTheme(ThemeMode.LIGHT) { androidx.compose.runtime.key(open) { com.villamediana.novelo.ui.entry.EntryScreen(nav, open) } } }
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Em tópicos").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("entry-points").assertExists()
+        compose.onNodeWithText("Sábado, dia 12, às 16h").assertExists()
+        shot("30-entry-points")
+        // A short note has none: nothing above its text.
+        val short = runBlocking { graph.db.entries().insert(com.villamediana.novelo.data.Entry(kind = "note", title = "Senha do wifi", body = "girassol", createdAt = now, updatedAt = now)) }
+        compose.runOnIdle { open = short }
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Senha do wifi").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("entry-points").assertDoesNotExist()
+    }
+
+    @Test
     fun photosWaitOnTheMainScreenAndATaskKeepsThem() {
         seed()
         val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()

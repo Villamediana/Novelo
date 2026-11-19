@@ -23,6 +23,8 @@ import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import com.villamediana.novelo.NoveloApplication
+import com.villamediana.novelo.R
+import com.villamediana.novelo.settings.t
 import com.villamediana.novelo.data.Entry
 import com.villamediana.novelo.ui.theme.NoveloColors
 import kotlinx.coroutines.flow.first
@@ -62,14 +64,17 @@ internal fun ItemMenu(expanded: Boolean, onDismiss: () -> Unit, actions: List<Me
 }
 
 /**
- * A note out to another app, by the phone's share sheet: its title and text, and the files and
- * photos it holds.
+ * A note out to another app, by the phone's share sheet: its title, points ("Em tópicos") and text,
+ * and the files and photos it holds.
  */
 internal suspend fun shareNote(context: Context, e: Entry) {
     val lib = NoveloApplication.graph.library
     val held = lib.filesOf(e.id).first().map { File(it.path) } + lib.photosOf(e.id).first().map { File(it.path) }
     val uris = held.filter { it.isFile }.mapNotNull { runCatching { FileProvider.getUriForFile(context, context.packageName + ".files", it) }.getOrNull() }
-    val text = listOf(e.title, e.body).filter { it.isNotBlank() }.joinToString("\n\n")
+    // A long note's points go too, above its text, as on its page.
+    val points = com.villamediana.novelo.mind.Summary.read(e.summary).takeIf { e.kindEnum == com.villamediana.novelo.data.Kind.NOTE }.orEmpty()
+    val topics = points.takeIf { it.isNotEmpty() }?.let { p -> t(R.string.in_topics) + "\n" + p.joinToString("\n") { "• $it" } }
+    val text = listOfNotNull(e.title, topics, e.body).filter { it.isNotBlank() }.joinToString("\n\n")
     val send = if (uris.isEmpty()) {
         Intent(Intent.ACTION_SEND).setType("text/plain")
     } else {

@@ -99,6 +99,7 @@
     <string name="said_photo">From the photo</string>
     <string name="said_typed">What you wrote</string>
     <string name="said_spoken">What you said</string>
+    <string name="in_topics">Key points</string>
     <string name="steps">Steps</string>
     <string name="steps_count">Steps · %1$d/%2$d</string>
     <string name="step_remove">Remove step</string>
