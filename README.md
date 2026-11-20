@@ -10,8 +10,6 @@ Segure e fale (ou toque pra deixar ouvindo). O Novelo transcreve, entende o que 
 
 Também dá pra **perguntar** ("o que eu tenho pra hoje?", "quando falei do contrato?", "qual era a senha do wifi da minha mãe?"): o Novelo procura no que você guardou e mostra o trecho. Pode **dar notícia** de algo ("terminei a planilha", "o fornecedor respondeu"): ele atualiza o item, marca etapas e guarda o andamento. Em tarefas longas, ele mesmo marca um momento pra perguntar como está.
 
-No **Hoje** e em **Tarefas**, **deslize** a tarefa: pra direita ela fica feita; pra esquerda, pulada — a que se repete pula só aquela vez, as outras vão pra amanhã na mesma hora. Cada deslize pode ser desfeito na hora.
-
 Pessoas, lugares, projetos e assuntos citados viram nós de um **grafo**. É ele que liga as lembranças entre si e ajuda a achar as coisas.
 
 A **câmera** do app lê o que está na foto (um papel, um quadro, um recibo) e guarda do mesmo jeito; a foto também vai pra galeria do celular na hora.

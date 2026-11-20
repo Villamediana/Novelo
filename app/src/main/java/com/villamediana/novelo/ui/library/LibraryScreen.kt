@@ -127,7 +127,6 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import com.villamediana.novelo.ui.components.groupShape
 import com.villamediana.novelo.ui.components.swipeGoes
-import com.villamediana.novelo.ui.components.Swipeable
 import com.villamediana.novelo.ui.graph.Connections
 import com.villamediana.novelo.ui.home.QuietIcon
 import com.villamediana.novelo.ui.theme.NoveloColors
@@ -206,10 +205,6 @@ fun LibraryScreen(nav: Nav, screen: Screen.Library) {
     val open: (Long) -> Unit = { nav.go(Screen.Entry(it)) }
     // Tarefas: the category she is looking at (null: all of them).
     var category by rememberSaveable { mutableStateOf<String?>(null) }
-    // Hoje and Tarefas: a line swiped to the right is done, to the left let go for now (1.81); what it did
-    // shows at the bottom a moment, with "Desfazer".
-    var undo by remember { mutableStateOf<Undo?>(null) }
-    val swipes = remember(scope) { Swipes(scope, graph.library, told = { undo = it }) }
 
     // The tabs are pages side by side: a swipe goes to the next one, a touch on a word too.
     // The tab asked by the screen is the page; the page a swipe stops on is the tab kept (so
@@ -271,131 +266,123 @@ fun LibraryScreen(nav: Nav, screen: Screen.Library) {
         }
     }
 
-    Box(Modifier.fillMaxSize().paper()) {
-        Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
-            // On Tarefas, Notas and Diário, a quiet + makes one by hand (it opens on its title).
-            // Diário: the + writes today's by hand, only while today has none (one diary a day; it
-            // makes today's, not another day's).
-            val todayWritten = remember(entries) {
-                val today = com.villamediana.novelo.mind.DayDiary.bounds(System.currentTimeMillis(), ZoneId.systemDefault())
-                entries.orEmpty().any { it.kindEnum == Kind.DIARY && it.createdAt in today }
+    Column(Modifier.fillMaxSize().paper().statusBarsPadding().navigationBarsPadding().imePadding()) {
+        // On Tarefas, Notas and Diário, a quiet + makes one by hand (it opens on its title).
+        // Diário: the + writes today's by hand, only while today has none (one diary a day; it
+        // makes today's, not another day's).
+        val todayWritten = remember(entries) {
+            val today = com.villamediana.novelo.mind.DayDiary.bounds(System.currentTimeMillis(), ZoneId.systemDefault())
+            entries.orEmpty().any { it.kindEnum == Kind.DIARY && it.createdAt in today }
+        }
+        val makes = when (TABS.getOrNull(pager.currentPage)) {
+            Filter.TASKS -> Kind.TASK
+            Filter.NOTES -> Kind.NOTE
+            Filter.DIARY -> Kind.DIARY.takeIf { entries != null && !todayWritten }
+            else -> null
+        }
+        // Remédios: the + makes a medicine by hand (it opens on its name).
+        val makesMed = TABS.getOrNull(pager.currentPage) == Filter.MEDS
+        Row(Modifier.fillMaxWidth().padding(start = 6.dp, end = if ((makes != null || makesMed) && !searching) 4.dp else 16.dp, top = 4.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+            QuietIcon(NoveloIcons.Back, t(R.string.back), { nav.back() }, alpha = 0.8f)
+            SearchBar(
+                searching = searching,
+                query = query,
+                onQuery = { query = it },
+                onOpen = { searching = true },
+                onClear = { if (query.isEmpty()) searching = false else query = "" },
+                focus = focus,
+                modifier = Modifier.weight(1f).padding(start = 4.dp),
+            )
+            if (makes != null && !searching) {
+                QuietIcon(NoveloIcons.Plus, t(when (makes) { Kind.TASK -> R.string.new_task; Kind.NOTE -> R.string.new_note; else -> R.string.new_diary }), {
+                    scope.launch { nav.go(Screen.Entry(graph.library.create(makes))) }
+                }, alpha = 0.55f)
             }
-            val makes = when (TABS.getOrNull(pager.currentPage)) {
-                Filter.TASKS -> Kind.TASK
-                Filter.NOTES -> Kind.NOTE
-                Filter.DIARY -> Kind.DIARY.takeIf { entries != null && !todayWritten }
-                else -> null
+            if (makesMed && !searching) {
+                QuietIcon(NoveloIcons.Plus, t(R.string.new_med), { scope.launch { nav.go(Screen.Med(graph.library.newMed())) } }, alpha = 0.55f)
             }
-            // Remédios: the + makes a medicine by hand (it opens on its name).
-            val makesMed = TABS.getOrNull(pager.currentPage) == Filter.MEDS
-            Row(Modifier.fillMaxWidth().padding(start = 6.dp, end = if ((makes != null || makesMed) && !searching) 4.dp else 16.dp, top = 4.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                QuietIcon(NoveloIcons.Back, t(R.string.back), { nav.back() }, alpha = 0.8f)
-                SearchBar(
-                    searching = searching,
-                    query = query,
-                    onQuery = { query = it },
-                    onOpen = { searching = true },
-                    onClear = { if (query.isEmpty()) searching = false else query = "" },
-                    focus = focus,
-                    modifier = Modifier.weight(1f).padding(start = 4.dp),
-                )
-                if (makes != null && !searching) {
-                    QuietIcon(NoveloIcons.Plus, t(when (makes) { Kind.TASK -> R.string.new_task; Kind.NOTE -> R.string.new_note; else -> R.string.new_diary }), {
-                        scope.launch { nav.go(Screen.Entry(graph.library.create(makes))) }
-                    }, alpha = 0.55f)
-                }
-                if (makesMed && !searching) {
-                    QuietIcon(NoveloIcons.Plus, t(R.string.new_med), { scope.launch { nav.go(Screen.Med(graph.library.newMed())) } }, alpha = 0.55f)
-                }
-            }
+        }
 
-            AnimatedVisibility(visible = !searching || query.isBlank(), enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
-                Tabs(
-                    TABS,
-                    selected = pager.currentPage,
-                    position = { pager.currentPage + pager.currentPageOffsetFraction },
-                    onSelect = { i -> scope.launch { pager.animateScrollToPage(i) } },
-                )
-            }
+        AnimatedVisibility(visible = !searching || query.isBlank(), enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+            Tabs(
+                TABS,
+                selected = pager.currentPage,
+                position = { pager.currentPage + pager.currentPageOffsetFraction },
+                onSelect = { i -> scope.launch { pager.animateScrollToPage(i) } },
+            )
+        }
 
-            val list = entries
-            if (hits != null) {
-                // The medicines too (by name, person, how to take): their cards on top.
-                val allMeds by graph.medsNow.collectAsStateWithLifecycle()
-                val allTaken by graph.takenNow.collectAsStateWithLifecycle()
-                val medHits = remember(allMeds, debounced) { com.villamediana.novelo.ui.meds.medsFound(allMeds.orEmpty(), debounced) }
-                val nothing = hits.isEmpty() && photoHits.isEmpty() && fileHits.isEmpty() && medHits.isEmpty()
-                val found = listOf((if (nothing) t(R.string.search_nothing) else null) to hits.map { it.entry })
-                val medsLabel = t(R.string.tab_meds)
-                Entries(
-                    Filter.ALL, found, list.orEmpty(), terms = terms, showDone = false, onShowDone = {}, open = open, toggle = toggle, photos = photoHits, files = fileHits,
-                    top = if (medHits.isEmpty()) null else ({
-                        item(key = "label-found-meds") { SectionLabel(medsLabel, Modifier.animateItem()) }
-                        itemsIndexed(medHits, key = { _, m -> "found-med-${m.id}" }) { i, m ->
-                            Box(Modifier.animateItem().padding(bottom = if (i == medHits.lastIndex) 14.dp else GroupGap)) {
-                                com.villamediana.novelo.ui.meds.MedCard(
-                                    m, System.currentTimeMillis(), onClick = { nav.go(Screen.Med(m.id)) }, shape = groupShape(i, medHits.size),
-                                    taken = allTaken.orEmpty().filter { it.medId == m.id }.map { it.at }.toSet(), modifier = Modifier.testTag("found-med-$i"),
-                                )
-                            }
+        val list = entries
+        if (hits != null) {
+            // The medicines too (by name, person, how to take): their cards on top.
+            val allMeds by graph.medsNow.collectAsStateWithLifecycle()
+            val allTaken by graph.takenNow.collectAsStateWithLifecycle()
+            val medHits = remember(allMeds, debounced) { com.villamediana.novelo.ui.meds.medsFound(allMeds.orEmpty(), debounced) }
+            val nothing = hits.isEmpty() && photoHits.isEmpty() && fileHits.isEmpty() && medHits.isEmpty()
+            val found = listOf((if (nothing) t(R.string.search_nothing) else null) to hits.map { it.entry })
+            val medsLabel = t(R.string.tab_meds)
+            Entries(
+                Filter.ALL, found, list.orEmpty(), terms = terms, showDone = false, onShowDone = {}, open = open, toggle = toggle, photos = photoHits, files = fileHits,
+                top = if (medHits.isEmpty()) null else ({
+                    item(key = "label-found-meds") { SectionLabel(medsLabel, Modifier.animateItem()) }
+                    itemsIndexed(medHits, key = { _, m -> "found-med-${m.id}" }) { i, m ->
+                        Box(Modifier.animateItem().padding(bottom = if (i == medHits.lastIndex) 14.dp else GroupGap)) {
+                            com.villamediana.novelo.ui.meds.MedCard(
+                                m, System.currentTimeMillis(), onClick = { nav.go(Screen.Med(m.id)) }, shape = groupShape(i, medHits.size),
+                                taken = allTaken.orEmpty().filter { it.medId == m.id }.map { it.at }.toSet(), modifier = Modifier.testTag("found-med-$i"),
+                            )
                         }
-                    }),
-                )
-                return@Column
-            }
-            Box(Modifier.fillMaxSize().nestedScroll(edge)) {
-                HorizontalPager(state = pager, modifier = Modifier.fillMaxSize()) { page ->
-                    val f = TABS.getOrNull(page) ?: return@HorizontalPager
-                    Box(Modifier.fillMaxSize().graphicsLayer { if (page == 0) translationX = pull * SWIPE_FOLLOW }) {
-                        when {
-                            f == Filter.LINKS -> Connections(startTopic = screen.topic, onOpen = open, empty = { Empty(Filter.LINKS) })
-                            f == Filter.GALLERY -> Gallery(photos, empty = { Empty(Filter.GALLERY) })
-                            f == Filter.MEDS -> com.villamediana.novelo.ui.meds.MedsPage(onOpen = { nav.go(Screen.Med(it)) }, empty = { Empty(Filter.MEDS) })
-                            f == Filter.TODAY && list != null -> {
-                                // Hoje by its times (Miguel, 1.69): the medicines and the tasks of each hour together, to the end of
-                                // the day — a medicine's time from 3 hours ago (1.76; to tick one forgotten), a task's from 2; a task
-                                // left more than 2 hours goes to Atrasadas.
-                                val now = com.villamediana.novelo.ui.meds.rememberNow()
-                                val day = com.villamediana.novelo.ui.meds.rememberToday(now)
-                                val slots = remember(day?.slots, day?.lastNight, now / 60_000) { com.villamediana.novelo.ui.meds.fromNear(day?.lastNight.orEmpty() + day?.slots.orEmpty(), now) }
-                                Entries(
-                                    f, sectionsFor(f, list, showDone, now = now), list, terms = null, showDone = showDone, onShowDone = { showDone = !showDone }, open = open, toggle = toggle,
-                                    toggleAt = toggleAt, fold = t(R.string.section_done_today), folded = !showDoneToday, onFold = { showDoneToday = !showDoneToday }, swipes = swipes,
-                                    doses = day?.let { d ->
-                                        DayDoses(
-                                            slots, d.taken,
-                                            onToggle = { id, at -> graph.scope.launch { graph.library.toggleTaken(id, at) } },
-                                            onOpen = { nav.go(Screen.Med(it)) },
-                                        )
-                                    },
-                                )
-                            }
-                            f == Filter.TASKS && list != null -> {
-                                // The categories (the ones with the most open tasks first) as filters over the list.
-                                val all = sectionsFor(f, list, showDone)
-                                val names = remember(list, showDone) { Categories.inUse(list.filter { it.kindEnum == Kind.TASK && (showDone || it.statusEnum != Status.DONE) }) }
-                                val chosen = category?.takeIf { it in names }
-                                Column(Modifier.fillMaxSize()) {
-                                    if (names.isNotEmpty()) CategoryFilter(names, chosen, onChoose = { category = it })
-                                    Entries(
-                                        f, inCategory(all, chosen), list, terms = null, showDone = showDone, onShowDone = { showDone = !showDone }, open = open, toggle = toggle,
-                                        whole = all, showCategories = false,
-                                        fold = t(R.string.section_done), folded = !showDone, onFold = { showDone = !showDone }, swipes = swipes,
+                    }
+                }),
+            )
+            return@Column
+        }
+        Box(Modifier.fillMaxSize().nestedScroll(edge)) {
+            HorizontalPager(state = pager, modifier = Modifier.fillMaxSize()) { page ->
+                val f = TABS.getOrNull(page) ?: return@HorizontalPager
+                Box(Modifier.fillMaxSize().graphicsLayer { if (page == 0) translationX = pull * SWIPE_FOLLOW }) {
+                    when {
+                        f == Filter.LINKS -> Connections(startTopic = screen.topic, onOpen = open, empty = { Empty(Filter.LINKS) })
+                        f == Filter.GALLERY -> Gallery(photos, empty = { Empty(Filter.GALLERY) })
+                        f == Filter.MEDS -> com.villamediana.novelo.ui.meds.MedsPage(onOpen = { nav.go(Screen.Med(it)) }, empty = { Empty(Filter.MEDS) })
+                        f == Filter.TODAY && list != null -> {
+                            // Hoje by its times (Miguel, 1.69): the medicines and the tasks of each hour together, to the end of
+                            // the day — a medicine's time from 3 hours ago (1.76; to tick one forgotten), a task's from 2; a task
+                            // left more than 2 hours goes to Atrasadas.
+                            val now = com.villamediana.novelo.ui.meds.rememberNow()
+                            val day = com.villamediana.novelo.ui.meds.rememberToday(now)
+                            val slots = remember(day?.slots, day?.lastNight, now / 60_000) { com.villamediana.novelo.ui.meds.fromNear(day?.lastNight.orEmpty() + day?.slots.orEmpty(), now) }
+                            Entries(
+                                f, sectionsFor(f, list, showDone, now = now), list, terms = null, showDone = showDone, onShowDone = { showDone = !showDone }, open = open, toggle = toggle,
+                                toggleAt = toggleAt, fold = t(R.string.section_done_today), folded = !showDoneToday, onFold = { showDoneToday = !showDoneToday },
+                                doses = day?.let { d ->
+                                    DayDoses(
+                                        slots, d.taken,
+                                        onToggle = { id, at -> graph.scope.launch { graph.library.toggleTaken(id, at) } },
+                                        onOpen = { nav.go(Screen.Med(it)) },
                                     )
-                                }
-                            }
-                            list != null -> Entries(f, sectionsFor(f, list, showDone), list, terms = null, showDone = showDone, onShowDone = { showDone = !showDone }, open = open, toggle = toggle, dayPhotos = dayPhotos)
+                                },
+                            )
                         }
+                        f == Filter.TASKS && list != null -> {
+                            // The categories (the ones with the most open tasks first) as filters over the list.
+                            val all = sectionsFor(f, list, showDone)
+                            val names = remember(list, showDone) { Categories.inUse(list.filter { it.kindEnum == Kind.TASK && (showDone || it.statusEnum != Status.DONE) }) }
+                            val chosen = category?.takeIf { it in names }
+                            Column(Modifier.fillMaxSize()) {
+                                if (names.isNotEmpty()) CategoryFilter(names, chosen, onChoose = { category = it })
+                                Entries(
+                                    f, inCategory(all, chosen), list, terms = null, showDone = showDone, onShowDone = { showDone = !showDone }, open = open, toggle = toggle,
+                                    whole = all, showCategories = false,
+                                    fold = t(R.string.section_done), folded = !showDone, onFold = { showDone = !showDone },
+                                )
+                            }
+                        }
+                        list != null -> Entries(f, sectionsFor(f, list, showDone), list, terms = null, showDone = showDone, onShowDone = { showDone = !showDone }, open = open, toggle = toggle, dayPhotos = dayPhotos)
                     }
                 }
             }
         }
-        UndoBar(
-            undo,
-            onUndo = { u -> undo = null; scope.launch { u.back() } },
-            onGone = { undo = null },
-            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 14.dp),
-        )
     }
 }
 
@@ -431,8 +418,6 @@ private fun Entries(
     fold: String? = null,
     folded: Boolean = true,
     onFold: () -> Unit = {},
-    /** Hoje and Tarefas: what a line does when swiped to the side (1.81). */
-    swipes: Swipes? = null,
 ) {
     val searched = terms != null
     // Hoje › Pra hoje: one card per time, its medicines and its tasks; the one due now or next in the accent ("agora", "próximo").
@@ -533,14 +518,10 @@ private fun Entries(
                     item(key = "fold-$label") { FoldHeader(label, items.size, open = !folded, onClick = onFold, modifier = Modifier.animateItem()) }
                     if (!folded) itemsIndexed(items, key = { _, e -> key(e) }) { i, e ->
                         Box(Modifier.animateItem(fadeInSpec = androidx.compose.animation.core.tween(260), placementSpec = spring(dampingRatio = 0.9f, stiffness = 500f)).padding(bottom = if (i == items.lastIndex) 0.dp else GroupGap)) {
-                            val shape = groupShape(i, items.size, outer = 22.dp)
-                            val (right, left) = swipes?.forTask(e, Place.DONE) ?: (null to null)
-                            Swipeable(key(e), right, left, shape, Modifier.testTag("swipe-${key(e)}")) { actions ->
-                                EntryCard(
-                                    e, onClick = { open(e.id) }, onToggle = { tick(e) }, showKind = filter == Filter.TODAY, inToday = filter == Filter.TODAY,
-                                    shape = shape, showCategory = filter == Filter.TODAY, modifier = actions.testTag("done-$i"),
-                                )
-                            }
+                            EntryCard(
+                                e, onClick = { open(e.id) }, onToggle = { tick(e) }, showKind = filter == Filter.TODAY, inToday = filter == Filter.TODAY,
+                                shape = groupShape(i, items.size, outer = 22.dp), showCategory = filter == Filter.TODAY, modifier = Modifier.testTag("done-$i"),
+                            )
                         }
                     }
                     return@forEach
@@ -554,7 +535,7 @@ private fun Entries(
                             MomentCard(
                                 m, groupShape(i, times.size, outer = 22.dp), focus = m.at == focusAt, now = now, taken = doses?.taken.orEmpty(),
                                 onDose = { id, at -> doses?.onToggle?.invoke(id, at) }, onMed = { id -> doses?.onOpen?.invoke(id) },
-                                onTask = open, onToggleTask = { tick(it) }, showPeople = showPeople, modifier = Modifier.testTag("today-time"), swipes = swipes,
+                                onTask = open, onToggleTask = { tick(it) }, showPeople = showPeople, modifier = Modifier.testTag("today-time"),
                             )
                         }
                     }
@@ -565,18 +546,10 @@ private fun Entries(
                 // One block per group: the cards touch, only the ends are round.
                 itemsIndexed(items, key = { _, e -> key(e) }) { i, e ->
                     val shape = groupShape(i, items.size, outer = 22.dp)
-                    // Hoje and Tarefas: swiped to the right it is done, to the left let go for now (Em andamento has no day to put off).
-                    val place = when {
-                        swipes == null || searched || e.kindEnum != Kind.TASK -> null
-                        filter == Filter.TASKS -> Place.TASKS
-                        filter == Filter.TODAY -> if (label == DOING) Place.HOJE_DOING else Place.HOJE
-                        else -> null
-                    }
-                    val (right, left) = place?.let { swipes?.forTask(e, it) } ?: (null to null)
                     @Composable
                     fun card(modifier: Modifier) {
                         if (filter == Filter.DIARY && !searched) DiaryCard(e, onClick = { open(e.id) }, shape = shape, photos = dayPhotos.of(e.id))
-                        else Swipeable(key(e), right, left, shape, Modifier.testTag("swipe-${key(e)}")) { actions -> EntryCard(
+                        else EntryCard(
                             e,
                             onClick = { open(e.id) },
                             terms = terms.orEmpty(),
@@ -588,8 +561,8 @@ private fun Entries(
                             shape = shape,
                             dated = !searched && filter == Filter.NOTES,
                             showCategory = !searched && showCategories,
-                            modifier = modifier.then(actions),
-                        ) }
+                            modifier = modifier,
+                        )
                     }
                     if (movable) {
                         ReorderableItem(reorder, key = e.id) { dragging ->

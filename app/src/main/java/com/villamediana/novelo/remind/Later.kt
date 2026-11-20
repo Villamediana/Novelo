@@ -7,7 +7,7 @@ import java.time.Instant
 import java.time.ZoneId
 
 /**
- * A task left for tomorrow ("Amanhã", 1.81: the line swiped to the left in Hoje or Tarefas). What made it
+ * A task left for tomorrow ("Amanhã", 1.81: the line swiped to the left in Hoje or Tarefas; unused while the swipe is paused, 1.81.1). What made it
  * today's — its due day, its reminder, today or gone by — goes to tomorrow at the same hour; one with no day
  * at all gets tomorrow (no hour). Whatever is already after today stays where it is. A task that repeats isn't
  * put off: one of its times is let go instead ([Repeat.skip]).

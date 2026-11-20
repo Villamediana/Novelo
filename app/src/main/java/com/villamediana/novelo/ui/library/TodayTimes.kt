@@ -18,10 +18,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
-import androidx.compose.ui.draw.clipToBounds
-import com.villamediana.novelo.ui.components.Swipeable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -101,8 +98,6 @@ internal fun MomentCard(
     onToggleTask: (Entry) -> Unit,
     showPeople: Boolean,
     modifier: Modifier = Modifier,
-    /** What its lines do when swiped (1.81): a task done or skipped, a dose given. */
-    swipes: Swipes? = null,
 ) {
     val zone = ZoneId.systemDefault()
     val done = moment.tasks.all { it.statusEnum == Status.DONE } && moment.meds.all { (it.id to moment.at) in taken }
@@ -124,39 +119,19 @@ internal fun MomentCard(
             )
             if (focus) Text(t(if (moment.at <= now) R.string.med_now else R.string.med_next), style = MaterialTheme.typography.labelSmall, color = NoveloColors.Accent)
         }
-        // Each line swipes on its own, inside the card (it slides under the hour, never over it).
-        Column(Modifier.weight(1f).clipToBounds()) {
-            moment.meds.forEach { m ->
-                key("dose-${m.id}") {
-                    val given = (m.id to moment.at) in taken
-                    Swipeable(
-                        "dose-${m.id}-${moment.at}", right = swipes?.forDose(m, moment.at, given), left = null, shape = ROW,
-                        surface = NoveloColors.Surface, inset = 6.dp, stitch = false, modifier = Modifier.testTag("swipe-dose-${m.id}"),
-                    ) { actions -> DoseRow(m, moment.at, given, onDose, onMed, showPeople, actions) }
-                }
-            }
-            moment.tasks.forEach { e ->
-                key("task-${e.id}") {
-                    val (right, left) = swipes?.forTask(e, Place.HOJE_TIME) ?: (null to null)
-                    Swipeable(
-                        "task-${e.id}-${e.remindAt}", right = right, left = left, shape = ROW,
-                        surface = NoveloColors.Surface, inset = 6.dp, stitch = false, modifier = Modifier.testTag("swipe-task-${e.id}"),
-                    ) { actions -> TaskRow(e, onOpen = { onTask(e.id) }, onToggle = { onToggleTask(e) }, actions) }
-                }
-            }
+        Column(Modifier.weight(1f)) {
+            moment.meds.forEach { m -> DoseRow(m, moment.at, (m.id to moment.at) in taken, onDose, onMed, showPeople) }
+            moment.tasks.forEach { e -> TaskRow(e, onOpen = { onTask(e.id) }, onToggle = { onToggleTask(e) }) }
         }
     }
 }
 
-/** A line inside an hour's card (its touch and what shows under it when swiped). */
-private val ROW = RoundedCornerShape(14.dp)
-
 /** A task at its hour: the circle to tick, the title, and its quiet line (category, steps, what else matters). */
 @Composable
-private fun TaskRow(e: Entry, onOpen: () -> Unit, onToggle: () -> Unit, modifier: Modifier = Modifier) {
+private fun TaskRow(e: Entry, onOpen: () -> Unit, onToggle: () -> Unit) {
     val done = e.statusEnum == Status.DONE
     Row(
-        modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable(onClick = onOpen).testTag("today-task-${e.id}"),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable(onClick = onOpen).testTag("today-task-${e.id}"),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.testTag("check-task-${e.id}")) { CheckCircle(done, NoveloColors.Accent, onToggle, size = 22.dp) }

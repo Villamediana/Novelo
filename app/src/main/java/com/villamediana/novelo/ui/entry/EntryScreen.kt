@@ -226,7 +226,7 @@ fun EntryScreen(nav: Nav, id: Long) {
                             onClick = { scope.launch { lib.toggleDone(e.id) } }, modifier = Modifier.testTag("entry-done"),
                         )
                     } else times.forEach { (at, label, state) ->
-                        // One let go (swiped to the left, 1.81) is here too, said so: a tap brings it back.
+                        // One let go (swiped to the left in 1.81.0; the swipe is paused since 1.81.1) is here too, said so: a tap brings it back.
                         if (state == null) com.villamediana.novelo.ui.components.Pill(
                             label + " · " + t(R.string.time_skipped), selected = false,
                             onClick = { scope.launch { lib.skipTime(e.id, at, skip = false) } },
