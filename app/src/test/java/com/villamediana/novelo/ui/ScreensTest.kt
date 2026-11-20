@@ -1557,127 +1557,76 @@ class ScreensTest {
     }
 
     /**
-     * Hoje (1.81): a line swiped to the right is done; to the left it is let go — one that repeats skips that time
-     * (its page has it, and a tap brings it back), any other goes to tomorrow. "Desfazer" puts it back; short of the
-     * line nothing happens; a swipe started on a line never turns the tab.
+     * The swipe on tasks is paused (1.81.1; it fought with the tabs' and was easy to do by mistake): a swipe on a task,
+     * in Hoje (at its hour) or in Tarefas, turns the tab as before 1.81 and leaves the task as it was.
      */
     @Test
-    fun aLineSwipedInHojeIsDoneOrLetGo() {
+    fun aSwipeOnATaskTurnsTheTabAndLeavesItAsItWas() {
         val today = LocalDate.now(zone)
         val start = today.atStartOfDay(zone).toInstant().toEpochMilli()
-        val tomorrow = today.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
         val nowTime = java.time.LocalTime.now(zone).withSecond(0).withNano(0)
         val nextTime = nowTime.plusHours(1).let { if (it.isBefore(nowTime)) java.time.LocalTime.of(23, 59) else it }
         val next = today.atTime(nextTime).atZone(zone).toInstant().toEpochMilli()
         val rule = com.villamediana.novelo.remind.Repeat(com.villamediana.novelo.remind.Repeat.DAY, time = "%02d:%02d".format(nextTime.hour, nextTime.minute))
         val ids = runBlocking {
             listOf(
-                Entry(kind = "task", title = "Pagar a luz", status = "todo", dueAt = start, category = "Casa", createdAt = now, updatedAt = now),
-                Entry(kind = "task", title = "Mandar o relatório", status = "todo", dueAt = start, category = "Trabalho", createdAt = now - 1, updatedAt = now),
                 Entry(kind = "task", title = "Academia", status = "todo", remindAt = next, repeat = com.villamediana.novelo.remind.Repeat.write(rule), occursFrom = start, category = "Saúde", createdAt = now, updatedAt = now),
+                Entry(kind = "task", title = "Trocar a lâmpada da sala", status = "todo", category = "Casa", createdAt = now, updatedAt = now),
             ).map { graph.db.entries().insert(it) }
         }
+        val before = runBlocking { ids.map { graph.db.entries().get(it)!! } }
         val nav = Nav().apply { go(Screen.Library(Filter.TODAY)) }
-        val dark = androidx.compose.runtime.mutableStateOf(false)
-        compose.setContent {
-            NoveloTheme(if (dark.value) ThemeMode.DARK else ThemeMode.LIGHT) {
-                when (val s = nav.top) {
-                    is Screen.Library -> LibraryScreen(nav, s)
-                    is Screen.Entry -> EntryScreen(nav, s.id)
-                    else -> {}
-                }
-            }
-        }
+        compose.setContent { NoveloTheme(ThemeMode.LIGHT) { (nav.top as? Screen.Library)?.let { LibraryScreen(nav, it) } } }
         fun e(i: Int) = runBlocking { graph.db.entries().get(ids[i])!! }
-        val dp = compose.density.density
-        fun line(tag: String) = compose.onNodeWithTag(tag, useUnmergedTree = true)
+        fun same(i: Int) = e(i).let { it.status == before[i].status && it.doneTimes == before[i].doneTimes && it.skippedTimes == before[i].skippedTimes && it.dueAt == before[i].dueAt && it.remindAt == before[i].remindAt }
         try {
-            compose.waitUntil(5_000) { compose.onAllNodesWithText("Academia").fetchSemanticsNodes().isNotEmpty() && compose.onAllNodesWithText("Pagar a luz").fetchSemanticsNodes().isNotEmpty() }
-            // A screen reader, on the card itself, has both.
-            val card = compose.onNode(androidx.compose.ui.test.hasText("Pagar a luz") and androidx.compose.ui.test.hasClickAction()).fetchSemanticsNode()
-            assertEquals(listOf("Feito", "Amanhã"), card.config.getOrElseNullable(androidx.compose.ui.semantics.SemanticsActions.CustomActions) { null }?.map { it.label })
-            // To the right, halfway: the band of the accent, its circle closing with the way.
-            line("swipe-${ids[0]}").performTouchInput { down(center); moveBy(Offset(30 * dp, 0f)); moveBy(Offset(40 * dp, 0f)) }
-            compose.mainClock.advanceTimeBy(400)
-            shot("90-swipe-right-halfway")
-            // Past the line: the color floods from the check and the word says it.
-            line("swipe-${ids[0]}").performTouchInput { moveBy(Offset(90 * dp, 0f)) }
-            compose.mainClock.advanceTimeBy(700)
-            shot("91-swipe-right-past-the-line")
-            line("swipe-${ids[0]}").performTouchInput { up() }
-            compose.waitUntil(5_000) { e(0).status == "done" }
-            assertEquals(Filter.TODAY, (nav.top as Screen.Library).filter)
-            compose.waitUntil(5_000) { compose.onAllNodesWithTag("undo").fetchSemanticsNodes().isNotEmpty() }
-            compose.mainClock.advanceTimeBy(800)
-            shot("92-swipe-undo")
-            compose.onNodeWithTag("undo-action").performClick()
-            compose.waitUntil(5_000) { e(0).status == "todo" }
-            // Short of the line: back to its place, nothing done.
-            line("swipe-${ids[0]}").performTouchInput { down(center); moveBy(Offset(20 * dp, 0f)); moveBy(Offset(30 * dp, 0f)); up() }
-            compose.mainClock.advanceTimeBy(1_000)
-            assertEquals("todo", e(0).status)
-            // To the left, one with a day: tomorrow (it leaves Hoje).
-            line("swipe-${ids[1]}").performTouchInput { down(center); moveBy(Offset(-60 * dp, 0f)); moveBy(Offset(-90 * dp, 0f)) }
-            compose.mainClock.advanceTimeBy(700)
-            shot("93-swipe-left-tomorrow")
-            line("swipe-${ids[1]}").performTouchInput { up() }
-            compose.waitUntil(5_000) { e(1).dueAt == tomorrow }
-            compose.waitUntil(5_000) { compose.onAllNodesWithText("Mandar o relatório").fetchSemanticsNodes().isEmpty() }
-            assertEquals(Filter.TODAY, (nav.top as Screen.Library).filter)
-            // One that repeats, at its hour: that time is let go (and only it), in the dark too.
-            dark.value = true
+            // Hoje, a task at its hour: no swipe actions for a screen reader any more, and a swipe to the left goes to Tarefas.
+            compose.waitUntil(5_000) { compose.onAllNodesWithTag("today-task-${ids[0]}").fetchSemanticsNodes().isNotEmpty() }
+            assertEquals(null, compose.onNodeWithTag("today-task-${ids[0]}").fetchSemanticsNode().config.getOrElseNullable(androidx.compose.ui.semantics.SemanticsActions.CustomActions) { null })
+            compose.onNodeWithTag("today-task-${ids[0]}").performTouchInput { swipeLeft() }
+            compose.waitUntil(5_000) { (nav.top as Screen.Library).filter == Filter.TASKS }
             compose.waitForIdle()
-            line("swipe-task-${ids[2]}").performTouchInput { down(center); moveBy(Offset(-50 * dp, 0f)); moveBy(Offset(-70 * dp, 0f)) }
-            compose.mainClock.advanceTimeBy(700)
-            shot("94-swipe-left-skip-a-time-dark")
-            line("swipe-task-${ids[2]}").performTouchInput { up() }
-            compose.waitUntil(5_000) { next in com.villamediana.novelo.remind.Repeat.skippedOf(e(2)) }
-            assertEquals("todo", e(2).status)
-            compose.waitUntil(5_000) { compose.onAllNodesWithText("Academia").fetchSemanticsNodes().isEmpty() }
-            dark.value = false
-            // Its page says so; a tap brings it back.
-            nav.go(Screen.Entry(ids[2]))
-            compose.waitUntil(5_000) { compose.onAllNodesWithTag("entry-skipped-$next").fetchSemanticsNodes().isNotEmpty() }
-            compose.mainClock.advanceTimeBy(600)
-            shot("95-entry-a-time-let-go")
-            compose.onNodeWithTag("entry-skipped-$next").performClick()
-            compose.waitUntil(5_000) { com.villamediana.novelo.remind.Repeat.skippedOf(e(2)).isEmpty() }
-            compose.waitUntil(5_000) { compose.onAllNodesWithTag("entry-time-$next").fetchSemanticsNodes().isNotEmpty() }
+            assertTrue(same(0))
+            // Tarefas: a swipe to the left on a task goes on to the next tab, the task untouched.
+            compose.waitUntil(5_000) { compose.onAllNodesWithText("Trocar a lâmpada da sala").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNode(androidx.compose.ui.test.hasText("Trocar a lâmpada da sala") and androidx.compose.ui.test.hasClickAction()).performTouchInput { swipeLeft() }
+            compose.waitUntil(5_000) { (nav.top as Screen.Library).filter == Filter.DIARY }
+            compose.waitForIdle()
+            assertTrue(same(1))
+            assertTrue(same(0))
         } finally {
             runBlocking { ids.forEach { graph.db.entries().delete(it) } }
         }
     }
 
-    /** Tarefas (1.81): to the right it is done (it goes to Feitas, folded); to the left, tomorrow — it stays, its day says so. */
+    /** A time let go while the swipe was there (1.81.0) still shows on the task's page, and a tap brings it back. */
     @Test
-    fun aLineSwipedInTarefasIsDoneOrLeftForTomorrow() {
-        val tomorrow = LocalDate.now(zone).plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
-        val ids = runBlocking {
-            listOf(
-                Entry(kind = "task", title = "Trocar a lâmpada da sala", status = "todo", category = "Casa", createdAt = now, updatedAt = now),
-                Entry(kind = "task", title = "Revisar o contrato", status = "todo", category = "Casa", createdAt = now - 1, updatedAt = now),
-            ).map { graph.db.entries().insert(it) }
+    fun aTimeLetGoBeforeStillShowsOnItsPage() {
+        val today = LocalDate.now(zone)
+        val start = today.atStartOfDay(zone).toInstant().toEpochMilli()
+        val nowTime = java.time.LocalTime.now(zone).withSecond(0).withNano(0)
+        val nextTime = nowTime.plusHours(1).let { if (it.isBefore(nowTime)) java.time.LocalTime.of(23, 59) else it }
+        val next = today.atTime(nextTime).atZone(zone).toInstant().toEpochMilli()
+        val rule = com.villamediana.novelo.remind.Repeat(com.villamediana.novelo.remind.Repeat.DAY, time = "%02d:%02d".format(nextTime.hour, nextTime.minute))
+        val id = runBlocking {
+            graph.db.entries().insert(
+                Entry(kind = "task", title = "Academia", status = "todo", remindAt = next, repeat = com.villamediana.novelo.remind.Repeat.write(rule), occursFrom = start, category = "Saúde", createdAt = now, updatedAt = now),
+            ).also { graph.library.skipTime(it, next) }
         }
-        val nav = Nav().apply { go(Screen.Library(Filter.TASKS)) }
-        compose.setContent { NoveloTheme(ThemeMode.LIGHT) { (nav.top as? Screen.Library)?.let { LibraryScreen(nav, it) } } }
-        fun e(i: Int) = runBlocking { graph.db.entries().get(ids[i])!! }
-        val dp = compose.density.density
+        fun e() = runBlocking { graph.db.entries().get(id)!! }
+        assertTrue(next in com.villamediana.novelo.remind.Repeat.skippedOf(e()))
+        val nav = Nav().apply { go(Screen.Entry(id)) }
+        compose.setContent { NoveloTheme(ThemeMode.LIGHT) { (nav.top as? Screen.Entry)?.let { EntryScreen(nav, it.id) } } }
         try {
-            compose.waitUntil(5_000) { compose.onAllNodesWithText("Revisar o contrato").fetchSemanticsNodes().isNotEmpty() }
-            compose.onNodeWithTag("swipe-${ids[1]}", useUnmergedTree = true).performTouchInput { down(center); moveBy(Offset(-60 * dp, 0f)); moveBy(Offset(-90 * dp, 0f)) }
-            compose.mainClock.advanceTimeBy(700)
-            shot("96-tasks-swipe-left-tomorrow")
-            compose.onNodeWithTag("swipe-${ids[1]}", useUnmergedTree = true).performTouchInput { up() }
-            compose.waitUntil(5_000) { e(1).dueAt == tomorrow }
-            compose.waitUntil(5_000) { compose.onAllNodesWithText("amanhã").fetchSemanticsNodes().isNotEmpty() }
-            compose.onNodeWithTag("swipe-${ids[0]}", useUnmergedTree = true).performTouchInput { down(center); moveBy(Offset(60 * dp, 0f)); moveBy(Offset(90 * dp, 0f)); up() }
-            compose.waitUntil(5_000) { e(0).status == "done" }
-            compose.waitUntil(5_000) { compose.onAllNodesWithText("Trocar a lâmpada da sala").fetchSemanticsNodes().isEmpty() }
-            assertEquals(Filter.TASKS, (nav.top as Screen.Library).filter)
-            compose.mainClock.advanceTimeBy(800)
-            shot("97-tasks-after-swipes")
+            compose.waitUntil(5_000) { compose.onAllNodesWithTag("entry-skipped-$next").fetchSemanticsNodes().isNotEmpty() }
+            compose.mainClock.advanceTimeBy(600)
+            shot("90-entry-a-time-let-go")
+            compose.onNodeWithTag("entry-skipped-$next").performClick()
+            compose.waitUntil(5_000) { com.villamediana.novelo.remind.Repeat.skippedOf(e()).isEmpty() }
+            compose.waitUntil(5_000) { compose.onAllNodesWithTag("entry-time-$next").fetchSemanticsNodes().isNotEmpty() }
+            assertEquals("todo", e().status)
         } finally {
-            runBlocking { ids.forEach { graph.db.entries().delete(it) } }
+            runBlocking { graph.db.entries().delete(id) }
         }
     }
 

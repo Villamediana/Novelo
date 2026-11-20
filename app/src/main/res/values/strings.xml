@@ -575,16 +575,6 @@
     <string name="web_linking">Ligando…</string>
     <string name="web_linked">Pronto</string>
     <string name="web_linked_hint">O Novelo está aberto em %1$s. Pode escrever lá.</string>
-    <!-- Deslizar nas tarefas (1.81): → feito, ← pular (uma vez de uma que se repete) ou amanhã. -->
-    <string name="swipe_done">Feito</string>
-    <string name="swipe_reopen">Reabrir</string>
-    <string name="swipe_skip">Pular</string>
-    <string name="swipe_skip_at">Pular %1$s</string>
-    <string name="swipe_tomorrow">Amanhã</string>
-    <string name="undo">Desfazer</string>
-    <string name="undo_done">Feito</string>
-    <string name="undo_reopened">Reaberto</string>
-    <string name="undo_skipped">Pulado</string>
-    <string name="undo_tomorrow">Pra amanhã</string>
+    <!-- Uma vez pulada de uma tarefa que se repete (1.81; o deslize está pausado desde a 1.81.1): a página da tarefa diz e um toque traz de volta. -->
     <string name="time_skipped">pulado</string>
 </resources>

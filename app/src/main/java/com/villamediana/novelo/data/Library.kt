@@ -326,7 +326,7 @@ class Library(
     }
 
     /**
-     * A task left for tomorrow ("Amanhã", 1.81: swiped to the left): what made it today's goes to tomorrow at the same
+     * A task left for tomorrow ("Amanhã", 1.81: swiped to the left; unused while the swipe is paused, 1.81.1): what made it today's goes to tomorrow at the same
      * hour, its reminder rings again ([com.villamediana.novelo.remind.Later]). Returns it as it was (for "Desfazer").
      */
     suspend fun putOff(id: Long, zone: java.time.ZoneId = java.time.ZoneId.systemDefault()): Entry? {
@@ -339,7 +339,7 @@ class Library(
     }
 
     /**
-     * "Desfazer" after a swipe (1.81): where it stood and when — done or not, its times, its day and reminder, its
+     * "Desfazer" after a swipe (1.81; unused while the swipe is paused, 1.81.1): where it stood and when — done or not, its times, its day and reminder, its
      * steps (a time done starts them over) — back as [before] had them; what was written in it meanwhile stays.
      */
     suspend fun restore(before: Entry) {

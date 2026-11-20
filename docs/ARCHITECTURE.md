@@ -49,7 +49,19 @@ Se a API recusa o pedido (400/415/422), `Thinking` tenta de novo sem a imagem e 
 `response_format`. Lembrete que venceu com o celular desligado toca quando ele liga; tarefa feita
 perde o lembrete.
 
-## Deslizar nas tarefas (1.81.0, 2026-11-20)
+## Deslizar nas tarefas (1.81.0, 2026-11-20) — pausado na 1.81.1
+
+**Pausado na 1.81.1 (2026-11-20)**, a pedido do Miguel: o deslize na linha brigava com o deslize das abas e era
+fácil fazer sem querer. O que é tela voltou a ser como na 1.80.0: `SwipeRow.kt`, `Swipes.kt`, a pílula de
+Desfazer, o `ic_skip` e as strings `swipe_*`/`undo*` saíram; `LibraryScreen.kt`, `TodayTimes.kt`, `Meds.kt`
+(`DoseRow`) e `NoveloIcons.kt` são os da 1.80.0, e deslizar sobre uma tarefa troca de aba de novo
+(`ScreensTest.aSwipeOnATaskTurnsTheTabAndLeavesItAsItWas`). **Ficou** o que é dado, porque celulares já abriram
+a 1.81.0 (banco v18) e o Novelo Web já lê `skippedTimes`: o banco v18, `Repeat.skip`/`behind`/`settle`,
+`Library.skipTime`/`putOff`/`restore`, `remind/Later`, o Keeper zerando as puladas, o `WebParityTest` e, na página
+da tarefa, a vez pulada de hoje com o toque que traz de volta (`aTimeLetGoBeforeStillShowsOnItsPage`). Voltar o
+banco pra v17 apagaria ou travaria quem já está na v18. O trabalho todo está guardado na tag
+`guardado/deslizar-1.81.0` (o commit `ae6aca4`). Pra repor: `git revert` do commit "1.81.1: deslizar pausado"
+e resolver o que tiver mudado nesses arquivos; os prints 90–97 e os dois testes de deslize voltam junto.
 
 Pedido do Miguel: "swipe pra marcar, outro pra pular" — marcar já tinha o círculo; faltava **pular**. Só onde há
 o que fazer com uma linha: **Hoje** e **Tarefas** (Diário, Notas, Galeria e Remédios não). Segue o que os apps de

@@ -27,7 +27,6 @@ object NoveloIcons {
     val Open: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_open)
     val Plus: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_plus)
     val Check: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_check)
-    val Skip: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_skip)
     val Chevron: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_chevron)
     val Sun: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_sun)
     val Moon: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_moon)
