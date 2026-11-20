@@ -225,11 +225,16 @@ fun EntryScreen(nav: Nav, id: Long) {
                             t(R.string.status_done), selected = e.statusEnum == Status.DONE,
                             onClick = { scope.launch { lib.toggleDone(e.id) } }, modifier = Modifier.testTag("entry-done"),
                         )
-                    } else times.forEach { (at, label, done) ->
-                        com.villamediana.novelo.ui.components.Pill(
-                            (if (done) "✓ " else "") + label, selected = done,
+                    } else times.forEach { (at, label, state) ->
+                        // One let go (swiped to the left, 1.81) is here too, said so: a tap brings it back.
+                        if (state == null) com.villamediana.novelo.ui.components.Pill(
+                            label + " · " + t(R.string.time_skipped), selected = false,
+                            onClick = { scope.launch { lib.skipTime(e.id, at, skip = false) } },
+                            modifier = Modifier.testTag("entry-skipped-$at"),
+                        ) else com.villamediana.novelo.ui.components.Pill(
+                            (if (state) "✓ " else "") + label, selected = state,
                             onClick = { scope.launch { lib.toggleTime(e.id, at) } },
-                            modifier = Modifier.semantics { contentDescription = label + " · " + t(if (done) R.string.status_done else R.string.status_todo) }.testTag("entry-time-$at"),
+                            modifier = Modifier.semantics { contentDescription = label + " · " + t(if (state) R.string.status_done else R.string.status_todo) }.testTag("entry-time-$at"),
                         )
                     }
                 }
@@ -328,11 +333,11 @@ fun EntryScreen(nav: Nav, id: Long) {
 }
 
 /**
- * A task that repeats, its times to tick on its page: today's (done or not) and, before them, the last
- * ones of days before still not done (said with their day). Empty: it doesn't repeat, or has none today.
+ * A task that repeats, its times to tick on its page: today's (done or not, or let go — null) and, before them,
+ * the last ones of days before still not done (said with their day). Empty: it doesn't repeat, or has none today.
  */
 @Composable
-private fun rememberTaskTimes(e: Entry): List<Triple<Long, String, Boolean>> {
+private fun rememberTaskTimes(e: Entry): List<Triple<Long, String, Boolean?>> {
     val now = com.villamediana.novelo.ui.meds.rememberNow()
     val zone = ZoneId.systemDefault()
     val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
@@ -341,8 +346,9 @@ private fun rememberTaskTimes(e: Entry): List<Triple<Long, String, Boolean>> {
         val start = today.atStartOfDay(zone).toInstant().toEpochMilli()
         val end = today.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
         val all = com.villamediana.novelo.remind.Repeat.timesOf(e, end, zone)
-        val before = all.filter { it.first < start && !it.second }.takeLast(MISSED_SHOWN).map { (at, _) -> Triple(at, Dates.dayTime(at, zone), false) }
-        before + all.filter { it.first >= start }.map { (at, done) -> Triple(at, Dates.time(at, zone), done) }
+        val before = all.filter { it.first < start && !it.second }.takeLast(MISSED_SHOWN).map { (at, _) -> Triple<Long, String, Boolean?>(at, Dates.dayTime(at, zone), false) }
+        val skipped = com.villamediana.novelo.remind.Repeat.skippedOf(e).filter { it in start until end }.map { Triple<Long, String, Boolean?>(it, Dates.time(it, zone), null) }
+        before + (all.filter { it.first >= start }.map { (at, done) -> Triple<Long, String, Boolean?>(at, Dates.time(at, zone), done) } + skipped).sortedBy { it.first }
     }
 }
 

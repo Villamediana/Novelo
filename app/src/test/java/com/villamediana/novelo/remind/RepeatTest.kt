@@ -199,4 +199,127 @@ class RepeatTest {
         assertEquals(Status.TODO, e.statusEnum)
         assertEquals(at(2026, 11, 12, 9), e.remindAt)
     }
+
+    /**
+     * "Pular" (swiped to the left, 1.81): one time of a task that repeats is let go — not done, not late, never rung —
+     * and comes back with a tap on its page; done after all, it is just done.
+     */
+    @Test
+    fun aTimeLetGoIsAsIfItWerentThere() = runBlocking {
+        val three = Repeat(Repeat.DAY, time = "10:00", times = listOf("10:00", "14:00", "20:00"))
+        var clock = at(2026, 11, 14, 13, 30)
+        val rang = mutableListOf<Long>()
+        val lib = com.villamediana.novelo.data.Library(db, object : ReminderSync { override suspend fun sync(entryIds: List<Long>) { rang += entryIds } }, clock = { clock })
+        val id = db.entries().insert(
+            Entry(kind = "task", title = "Academia", status = "todo", remindAt = at(2026, 11, 14, 14), repeat = Repeat.write(three), occursFrom = at(2026, 11, 13, 10), createdAt = clock, updatedAt = clock),
+        )
+        fun e() = runBlocking { db.entries().get(id)!! }
+        // Yesterday's 20:00 forgotten (late) and today's 14:00 still to come: both let go.
+        lib.skipTime(id, at(2026, 11, 13, 20), zone = zone)
+        lib.skipTime(id, at(2026, 11, 14, 14), zone = zone)
+        assertEquals(setOf(at(2026, 11, 13, 20), at(2026, 11, 14, 14)), Repeat.skippedOf(e()))
+        assertEquals(listOf(id, id), rang)
+        val times = Repeat.timesOf(e(), at(2026, 11, 15, 0), zone).map { it.first }
+        assertEquals(false, at(2026, 11, 13, 20) in times)
+        assertEquals(false, at(2026, 11, 14, 14) in times)
+        // It doesn't ring at 14:00 any more: the next is 20:00; "feito" with no time doesn't mean the one let go.
+        assertEquals(at(2026, 11, 14, 20), e().remindAt)
+        assertEquals(Status.TODO, e().statusEnum)
+        assertEquals(at(2026, 11, 14, 10), Repeat.current(e(), clock, zone))
+        lib.toggleTime(id, at(2026, 11, 14, 10), zone)
+        assertEquals(at(2026, 11, 14, 20), Repeat.current(e(), clock, zone))
+        // Hoje: nothing of it late (the 13th's 10:00 and 14:00 are, they weren't let go), nothing at 14:00.
+        val today = com.villamediana.novelo.ui.library.sectionsFor(com.villamediana.novelo.ui.Filter.TODAY, listOf(e()), false, zone, clock)
+        val late = today.first().second.map { it.remindAt }
+        assertEquals(listOf(at(2026, 11, 13, 10), at(2026, 11, 13, 14)), late)
+        assertEquals(listOf(at(2026, 11, 14, 20)), today[1].second.filter { it.statusEnum != Status.DONE }.map { it.remindAt })
+        // Brought back from its page: there again, and it rings at 14:00 again.
+        lib.skipTime(id, at(2026, 11, 14, 14), skip = false, zone = zone)
+        assertEquals(setOf(at(2026, 11, 13, 20)), Repeat.skippedOf(e()))
+        assertEquals(at(2026, 11, 14, 14), e().remindAt)
+        // Let go, then done after all: just done.
+        lib.skipTime(id, at(2026, 11, 14, 14), zone = zone)
+        lib.setTime(id, at(2026, 11, 14, 14), true, zone)
+        assertEquals(setOf(at(2026, 11, 13, 20)), Repeat.skippedOf(e()))
+        assertEquals(true, at(2026, 11, 14, 14) in Repeat.doneOf(e()))
+        // Two days on, the ones behind it long ago in a row from the start leave both lists.
+        lib.toggleTime(id, at(2026, 11, 13, 10), zone)
+        lib.toggleTime(id, at(2026, 11, 13, 14), zone)
+        clock = at(2026, 11, 16, 9)
+        lib.skipTime(id, at(2026, 11, 14, 20), zone = zone)
+        assertEquals(at(2026, 11, 15, 10), e().occursFrom)
+        assertEquals("[]", e().skippedTimes)
+        // A new rule: its times count from the start, none let go.
+        lib.skipTime(id, at(2026, 11, 16, 10), zone = zone)
+        lib.setReminder(id, at(2026, 11, 16, 18), Repeat(Repeat.DAY, time = "18:00"))
+        assertEquals("[]", e().skippedTimes)
+    }
+
+    /**
+     * "Amanhã" (swiped to the left, 1.81): what made it today's — its day, its reminder, today or gone — goes to
+     * tomorrow at the same hour and rings again; one with no day gets tomorrow. "Desfazer" puts it all back.
+     */
+    @Test
+    fun leftForTomorrowAtTheSameHour() = runBlocking {
+        val clock = at(2026, 11, 11, 16)
+        val lib = com.villamediana.novelo.data.Library(db, object : ReminderSync { override suspend fun sync(entryIds: List<Long>) {} }, clock = { clock })
+        val due = db.entries().insert(Entry(kind = "task", title = "Ligar pro banco", status = "todo", dueAt = at(2026, 11, 11, 15), dueHasTime = true, remindAt = at(2026, 11, 11, 14, 45), rungAt = at(2026, 11, 11, 14, 45), createdAt = clock, updatedAt = clock))
+        val late = db.entries().insert(Entry(kind = "task", title = "Pagar a luz", status = "doing", dueAt = at(2026, 11, 9, 0), createdAt = clock, updatedAt = clock))
+        val loose = db.entries().insert(Entry(kind = "task", title = "Presente da Ana", status = "todo", createdAt = clock, updatedAt = clock))
+        val friday = db.entries().insert(Entry(kind = "task", title = "Relatório", status = "todo", dueAt = at(2026, 11, 13, 0), remindAt = at(2026, 11, 11, 18), createdAt = clock, updatedAt = clock))
+        val later = db.entries().insert(Entry(kind = "task", title = "Dentista", status = "todo", dueAt = at(2026, 11, 20, 9), dueHasTime = true, createdAt = clock, updatedAt = clock))
+        fun e(id: Long) = runBlocking { db.entries().get(id)!! }
+        val before = lib.putOff(due, zone)!!
+        assertEquals(at(2026, 11, 12, 15), e(due).dueAt)
+        assertEquals(true, e(due).dueHasTime)
+        assertEquals(at(2026, 11, 12, 14, 45), e(due).remindAt)
+        assertNull(e(due).rungAt)
+        lib.putOff(late, zone)
+        assertEquals(at(2026, 11, 12, 0), e(late).dueAt)
+        assertEquals(Status.DOING, e(late).statusEnum)
+        lib.putOff(loose, zone)
+        assertEquals(at(2026, 11, 12, 0), e(loose).dueAt)
+        assertEquals(false, e(loose).dueHasTime)
+        // Due Friday, reminded today: only the reminder goes to tomorrow.
+        lib.putOff(friday, zone)
+        assertEquals(at(2026, 11, 13, 0), e(friday).dueAt)
+        assertEquals(at(2026, 11, 12, 18), e(friday).remindAt)
+        // Nothing of it today: nothing to put off (the swipe isn't there).
+        assertNull(lib.putOff(later, zone))
+        assertEquals(false, Later.can(e(later), clock, zone))
+        assertEquals(false, Later.can(e(due).copy(repeat = Repeat.write(Repeat(Repeat.DAY))), clock, zone))
+        // "Desfazer": as it was.
+        lib.restore(before)
+        assertEquals(at(2026, 11, 11, 15), e(due).dueAt)
+        assertEquals(at(2026, 11, 11, 14, 45), e(due).remindAt)
+        assertEquals(at(2026, 11, 11, 14, 45), e(due).rungAt)
+    }
+
+    /** "Desfazer" after a time done by a swipe: not done again, and its steps as they were (done starts them over). */
+    @Test
+    fun undoingPutsItAllBack() = runBlocking {
+        val clock = at(2026, 11, 14, 10, 5)
+        val lib = com.villamediana.novelo.data.Library(db, object : ReminderSync { override suspend fun sync(entryIds: List<Long>) {} }, clock = { clock })
+        val id = db.entries().insert(
+            Entry(
+                kind = "task", title = "Treino", status = "todo", remindAt = at(2026, 11, 14, 10), repeat = Repeat.write(Repeat(Repeat.DAY, time = "10:00")),
+                occursFrom = at(2026, 11, 14, 10), steps = com.villamediana.novelo.mind.Steps.write(listOf(Step("alongar", true), Step("correr"))), createdAt = clock, updatedAt = clock,
+            ),
+        )
+        val before = db.entries().get(id)!!
+        lib.setTime(id, at(2026, 11, 14, 10), true, zone)
+        assertEquals(false, com.villamediana.novelo.mind.Steps.read(db.entries().get(id)!!.steps).first().done)
+        lib.restore(before)
+        val back = db.entries().get(id)!!
+        assertEquals(emptySet<Long>(), Repeat.doneOf(back))
+        assertEquals(true, com.villamediana.novelo.mind.Steps.read(back.steps).first().done)
+        assertEquals(at(2026, 11, 14, 10), back.remindAt)
+        val done = db.entries().insert(Entry(kind = "task", title = "Pagar", status = "waiting", createdAt = clock, updatedAt = clock))
+        val was = db.entries().get(done)!!
+        lib.setStatus(done, Status.DONE, zone)
+        lib.restore(was)
+        assertEquals(Status.WAITING, db.entries().get(done)!!.statusEnum)
+        assertNull(db.entries().get(done)!!.doneAt)
+        assertEquals("waiting", db.progress().latest(done, 1).single().status)
+    }
 }

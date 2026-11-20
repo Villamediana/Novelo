@@ -58,6 +58,8 @@ class WebParityTest {
     private val now = java.time.LocalDateTime.of(2026, 11, 11, 14, 30).atZone(sp).toInstant().toEpochMilli()
     private val day = 86_400_000L
     private val json = Json { encodeDefaults = true }
+    // Comida dos meninos: yesterday's 20:00 let go ("Pular", 1.81).
+    private val tue20 = now - day + 5 * 3_600_000 + 1_800_000
 
     @BeforeTest fun open() {
         db = NoveloDatabase.inMemory(context)
@@ -84,7 +86,7 @@ class WebParityTest {
             createdAt = now - 2 * day, updatedAt = now - 2 * day,
         ),
         Entry(id = 5, kind = "diary", title = "Quarta-feira, 11 de novembro", body = "Fui correr cedo no parque.", createdAt = now - 3_600_000, updatedAt = now - 3_600_000),
-        Entry(id = 6, kind = "task", title = "Comida dos meninos", status = "todo", repeat = """{"every":"day","time":"10:00","times":["10:00","14:00","20:00"]}""", remindAt = now + 6 * 3_600_000, occursFrom = now - 2 * day - 4 * 3_600_000 - 1_800_000, doneTimes = "[]", createdAt = now - 3 * day, updatedAt = now - day),
+        Entry(id = 6, kind = "task", title = "Comida dos meninos", status = "todo", repeat = """{"every":"day","time":"10:00","times":["10:00","14:00","20:00"]}""", remindAt = now + 6 * 3_600_000, occursFrom = now - 2 * day - 4 * 3_600_000 - 1_800_000, doneTimes = "[]", createdAt = now - 3 * day, updatedAt = now - day, skippedTimes = "[$tue20]"),
         Entry(id = 7, kind = "task", title = "Mandar o relatório", status = "todo", dueAt = now - 2 * day, createdAt = now - 4 * day, updatedAt = now - 4 * day, category = "Trabalho"),
         Entry(id = 8, kind = "task", title = "Comprar ração", status = "done", doneAt = now - 3_600_000, createdAt = now - 2 * day, updatedAt = now - 3_600_000, category = "Casa"),
     )
@@ -240,6 +242,22 @@ class WebParityTest {
                     }
                 }
             })
+
+            // A time let go (swiped to the left, 1.81), brought back, and one let go then done after all.
+            putJsonArray("skips") {
+                val e6 = all.first { it.id == 6L }
+                val wed14 = now - 1_800_000
+                val skipped = Repeat.skip(e6, wed14, true, now, sp)
+                val back = Repeat.skip(skipped, wed14, false, now, sp)
+                val done = Repeat.tick(e6, tue20, true, now, sp)
+                for ((name, e) in listOf("skip" to skipped, "back" to back, "done" to done)) add(buildJsonObject {
+                    put("name", name)
+                    put("row", row(e))
+                    putJsonArray("times") { Repeat.timesOf(e, now + day, sp).forEach { add(pair(it)) } }
+                    put("current", Repeat.current(e, now, sp)?.let { JsonPrimitive(it) } ?: JsonNull)
+                    put("nextRing", Repeat.nextRing(e, now, sp)?.let { JsonPrimitive(it) } ?: JsonNull)
+                })
+            }
         }
         val text = Json { prettyPrint = true }.encodeToString(JsonObject.serializer(), out)
         File("build").mkdirs()

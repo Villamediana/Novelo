@@ -145,19 +145,26 @@ data class Repeat(
         /** Its times done. */
         fun doneOf(e: Entry): Set<Long> = runCatching { json.decodeFromString(longs, e.doneTimes) }.getOrDefault(emptyList()).toSet()
 
-        /** Its times done, written as [Entry.doneTimes] keeps them. */
+        /** Its times done, written as [Entry.doneTimes] keeps them (and [Entry.skippedTimes]). */
         fun writeDone(times: Collection<Long>): String = json.encodeToString(longs, times.distinct().sorted())
+
+        /** Its times let go by hand ("Pular", 1.81): as if they weren't there — not done, not late, never rung. */
+        fun skippedOf(e: Entry): Set<Long> = runCatching { json.decodeFromString(longs, e.skippedTimes) }.getOrDefault(emptyList()).toSet()
+
+        /** Its times behind it: done, or let go. */
+        fun behind(e: Entry): Set<Long> = doneOf(e) + skippedOf(e)
 
         /** Where its times count from (one from before 1.70 not yet fixed: its reminder). */
         private fun startOf(e: Entry): Long? = e.occursFrom ?: e.remindAt
 
-        /** Its times from where they count up to [until] (not included), each with done or not. */
+        /** Its times from where they count up to [until] (not included), each with done or not — the ones let go aren't there. */
         fun timesOf(e: Entry, until: Long, zone: ZoneId): List<Pair<Long, Boolean>> {
             if (!repeats(e)) return emptyList()
             val rule = read(e.repeat) ?: return emptyList()
             val from = startOf(e) ?: return emptyList()
             val done = doneOf(e)
-            return rule.between(from, until, zone).map { it to (it in done) }
+            val skipped = skippedOf(e)
+            return rule.between(from, until, zone).filter { it !in skipped }.map { it to (it in done) }
         }
 
         /** The last of its times that has come by [now], when it isn't done yet; null otherwise. */
@@ -171,17 +178,17 @@ data class Repeat(
             come(e, now, zone)?.let { return it }
             val rule = read(e.repeat) ?: return null
             val from = startOf(e) ?: return null
-            val done = doneOf(e)
+            val done = behind(e)
             var t = rule.next(maxOf(now, from - 1), zone)
             var n = 0
             while (t != null && t in done && n++ < MAX_TIMES) t = rule.next(t, zone)
             return t
         }
 
-        /** When it rings next after [after]: the first of its times not done already (null: it doesn't repeat). */
+        /** When it rings next after [after]: the first of its times not done (nor let go) already (null: it doesn't repeat). */
         fun nextRing(e: Entry, after: Long, zone: ZoneId): Long? {
             val rule = read(e.repeat) ?: return null
-            val done = if (e.kindEnum == Kind.TASK) doneOf(e) else emptySet()
+            val done = if (e.kindEnum == Kind.TASK) behind(e) else emptySet()
             var t = rule.next(after, zone)
             var n = 0
             while (t != null && t in done && n++ < MAX_TIMES) t = rule.next(t, zone)
@@ -197,21 +204,50 @@ data class Repeat(
          * steps start over. The times done long ago in a row from the start leave the list.
          */
         fun tick(e: Entry, at: Long, done: Boolean, now: Long, zone: ZoneId): Entry {
-            val rule = read(e.repeat) ?: return e
+            if (read(e.repeat) == null) return e
             val times = doneOf(e).toMutableSet()
             if (done) times += at else times -= at
+            // Done is done: a time let go and then done after all is just done.
+            var after = settle(e, at, times, if (done) skippedOf(e) - at else skippedOf(e), now, zone)
+            if (done) after = after.copy(checkInAt = null)
+            // Its steps start over for the next time.
+            if (done) after = after.copy(steps = com.villamediana.novelo.mind.Steps.write(com.villamediana.novelo.mind.Steps.read(e.steps).map { it.copy(done = false) }))
+            return after
+        }
+
+        /**
+         * One of its times let go by hand ([skip]: "Pular", the line swiped to the left in Hoje or Tarefas, 1.81) or
+         * brought back: not done, not late, never rung — the task stays open, its reminder on the next time still to do.
+         */
+        fun skip(e: Entry, at: Long, skip: Boolean, now: Long, zone: ZoneId): Entry {
+            if (read(e.repeat) == null) return e
+            val skipped = skippedOf(e).toMutableSet()
+            if (skip) skipped += at else skipped -= at
+            return settle(e, at, if (skip) doneOf(e) - at else doneOf(e), skipped, now, zone)
+        }
+
+        /**
+         * Its times done and let go as they are now: it stays open, the ones behind it long ago in a row from the start
+         * leave the lists, its reminder goes on the next time still to do and its due day (when it has one) on the time
+         * that counts now.
+         */
+        private fun settle(e: Entry, at: Long, done: Set<Long>, skipped: Set<Long>, now: Long, zone: ZoneId): Entry {
+            val rule = read(e.repeat) ?: return e
+            val d = done.toMutableSet()
+            val s = skipped.toMutableSet()
             var from = minOf(startOf(e) ?: at, at)
             var n = 0
-            while (from in times && from < now - KEEP_DONE_MS && n++ < MAX_TIMES) {
-                times -= from
+            while ((from in d || from in s) && from < now - KEEP_DONE_MS && n++ < MAX_TIMES) {
+                d -= from
+                s -= from
                 from = rule.next(from, zone) ?: break
             }
             var after = e.copy(
                 status = Status.TODO.key,
                 doneAt = null,
                 occursFrom = from,
-                doneTimes = writeDone(times.filter { it >= from }),
-                checkInAt = if (done) null else e.checkInAt,
+                doneTimes = writeDone(d.filter { it >= from }),
+                skippedTimes = writeDone(s.filter { it >= from }),
                 updatedAt = now,
             )
             after = after.copy(remindAt = nextRing(after, now, zone))
@@ -219,8 +255,6 @@ data class Repeat(
                 if (after.dueHasTime) t else Instant.ofEpochMilli(t).atZone(zone).toLocalDate().atStartOfDay(zone).toInstant().toEpochMilli()
             }
             if (due != null) after = after.copy(dueAt = due)
-            // Its steps start over for the next time.
-            if (done) after = after.copy(steps = com.villamediana.novelo.mind.Steps.write(com.villamediana.novelo.mind.Steps.read(e.steps).map { it.copy(done = false) }))
             return after
         }
 

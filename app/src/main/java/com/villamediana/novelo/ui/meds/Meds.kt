@@ -222,9 +222,9 @@ fun personColor(person: String?): Color = person?.let { CategoryColors.of(it, No
  * and how to take it; a touch opens it.
  */
 @Composable
-fun DoseRow(m: Med, at: Long, taken: Boolean, onToggle: (Long, Long) -> Unit, onOpen: (Long) -> Unit, showPerson: Boolean) {
+fun DoseRow(m: Med, at: Long, taken: Boolean, onToggle: (Long, Long) -> Unit, onOpen: (Long) -> Unit, showPerson: Boolean, modifier: Modifier = Modifier) {
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { onOpen(m.id) }.testTag("dose-${m.id}-$at"),
+        modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { onOpen(m.id) }.testTag("dose-${m.id}-$at"),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.testTag("tick-${m.id}-$at")) { CheckCircle(taken, personColor(m.person), { onToggle(m.id, at) }, size = 22.dp) }

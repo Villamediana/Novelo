@@ -575,4 +575,16 @@
     <string name="web_linking">Linking…</string>
     <string name="web_linked">Done</string>
     <string name="web_linked_hint">Novelo is open on %1$s. You can write there.</string>
+    <!-- Swipes on tasks (1.81): → done, ← skip (one time of a repeating one) or tomorrow. -->
+    <string name="swipe_done">Done</string>
+    <string name="swipe_reopen">Reopen</string>
+    <string name="swipe_skip">Skip</string>
+    <string name="swipe_skip_at">Skip %1$s</string>
+    <string name="swipe_tomorrow">Tomorrow</string>
+    <string name="undo">Undo</string>
+    <string name="undo_done">Done</string>
+    <string name="undo_reopened">Reopened</string>
+    <string name="undo_skipped">Skipped</string>
+    <string name="undo_tomorrow">For tomorrow</string>
+    <string name="time_skipped">skipped</string>
 </resources>
