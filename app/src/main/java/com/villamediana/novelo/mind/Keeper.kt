@@ -173,12 +173,12 @@ class Keeper(
             change.alarm?.let { e = e.copy(alarm = it) }
             // It comes back from now on (from its reminder, or from now), or not any more.
             change.repeat?.let { ask ->
-                if (ask.every.trim().lowercase() in STOP) e = e.copy(repeat = null, occursFrom = null, doneTimes = "[]")
+                if (ask.every.trim().lowercase() in STOP) e = e.copy(repeat = null, occursFrom = null, doneTimes = "[]", skippedTimes = "[]")
                 else repeating(ask, e.remindAt?.takeIf { it > now }, now, z).let { (r, at) ->
                     if (r != null) {
                         // Another rule: its times count from its first one (the same one said again keeps the times it has).
                         val same = r == old.repeat && old.occursFrom != null
-                        e = e.copy(repeat = r, remindAt = at, occursFrom = if (same || e.kindEnum != Kind.TASK) e.occursFrom else at, doneTimes = if (same) e.doneTimes else "[]")
+                        e = e.copy(repeat = r, remindAt = at, occursFrom = if (same || e.kindEnum != Kind.TASK) e.occursFrom else at, doneTimes = if (same) e.doneTimes else "[]", skippedTimes = if (same) e.skippedTimes else "[]")
                     }
                 }
             }

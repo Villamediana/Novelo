@@ -49,6 +49,45 @@ Se a API recusa o pedido (400/415/422), `Thinking` tenta de novo sem a imagem e 
 `response_format`. Lembrete que venceu com o celular desligado toca quando ele liga; tarefa feita
 perde o lembrete.
 
+## Deslizar nas tarefas (1.81.0, 2026-11-20)
+
+Pedido do Miguel: "swipe pra marcar, outro pra pular" — marcar já tinha o círculo; faltava **pular**. Só onde há
+o que fazer com uma linha: **Hoje** e **Tarefas** (Diário, Notas, Galeria e Remédios não). Segue o que os apps de
+tarefas fazem (Todoist, Gmail, Microsoft To Do): direita = concluir, esquerda = tirar de agora.
+
+- **→ Feito** (acento): o mesmo do círculo. Uma que se repete marca aquela vez (no Hoje a da linha; em Tarefas a
+  que conta agora, `Repeat.current`). Feita, deslizar de novo é **Reabrir** (tinta). Remédio no cartão da hora:
+  → **Tomado** na cor da pessoa (← nada: não existe "pular dose").
+- **← Pular** (tinta): uma que se repete **deixa aquela vez** (`Repeat.skip`, `Library.skipTime`): não é feita,
+  não atrasa, não toca — como se não existisse. Fica em `entries.skippedTimes` (banco v18, AutoMigration, JSON de
+  ms como `doneTimes`); `timesOf` não traz, `current`/`nextRing` pulam (`Repeat.behind` = feitas + puladas), e o
+  `settle` (que `tick` e `skip` dividem) tira as duas listas juntas do começo depois de 24 h. Feita depois de
+  pulada, é só feita. Regra nova (Keeper ou à mão) zera as puladas como zera as feitas. Na página da tarefa a vez
+  pulada de hoje aparece ("14:00 · pulado"); um toque traz de volta.
+- **← Amanhã** (tinta), as outras: o que fazia ela ser de hoje — prazo e lembrete de hoje ou de antes — vai pra
+  amanhã na mesma hora, e o lembrete toca de novo (`remind/Later`); sem dia nenhum, ganha amanhã (sem hora); o que
+  já é depois de hoje fica. Só aparece quando muda algo (`Later.can`). Em **Em andamento** não há ←: ali ela
+  aparece seja qual for o dia.
+- **Desfazer**: cada deslize diz o que fez numa pílula de tinta embaixo ("Pulado 14:00 · Academia"), 5 s, com
+  **Desfazer** — `Library.restore` põe de volta como estava (status, vezes, prazo, lembrete, etapas que a vez
+  feita zerou); dose, marcando de novo.
+- **O gesto** (`ui/components/SwipeRow.kt`, `Swipeable`): a linha segue o dedo; embaixo, uma faixa suave da cor da
+  ação com o desenho perto da borda — o anel fecha com o caminho (o círculo de marcar, desenhado pelo dedo) — e a
+  palavra na serifa inclinada quando cabe. **Passou da linha** (30% da largura, entre 64 e 120 dp) a cor inunda a
+  partir do desenho, ele dá um pulinho e o celular vibra (`GestureThresholdActivate`); soltar faz (`Confirm`).
+  Antes da linha, volta. O que sai da lista desliza pra fora e a lista fecha o vão; o que fica (feita na hora,
+  riscada no cartão; "Amanhã" em Tarefas) volta pro lugar já mudado. Lado sem ação só cede um pouco (diz não).
+  Leitor de tela: as duas como ações do item. Desenho novo: `ic_skip` (a linha salta por cima do ponto).
+- **Com as abas**: o deslize que começa numa linha é dela (como a fila embaixo do botão, 1.78) — a aba não troca;
+  fora das linhas (rótulos, vãos, embaixo da lista) e tocando no nome continua trocando, e no Hoje → ainda volta
+  pra tela principal fora das linhas. O toque longo de arrastar (Tarefas) segue: arrastar de lado antes dele é
+  deslize, segurar parado é mover.
+- **Novelo Web**: `skippedTimes` no `SCHEMA` (v18), `repeat.js` (`skippedOf`, `behind`, `skip`, `settle`),
+  `keeper.js`/`library.js` zerando com regra nova. `WebParityTest`: a Comida dos meninos com uma vez pulada (Hoje
+  e contexto) e os casos pular / trazer de volta / feita depois de pulada. A página não tem o gesto (é do celular).
+- Testes: `RepeatTest` (`aTimeLetGoIsAsIfItWerentThere`, `leftForTomorrowAtTheSameHour`, `undoingPutsItAllBack`),
+  `ScreensTest` (`aLineSwipedInHojeIsDoneOrLetGo`, `aLineSwipedInTarefasIsDoneOrLeftForTomorrow`; prints 90–97).
+
 ## Em tópicos (1.80.0, 2026-11-19)
 
 Quem testou gostou do texto já corrigido, mas queria os assuntos mais organizados. A nota ganha, em cima do

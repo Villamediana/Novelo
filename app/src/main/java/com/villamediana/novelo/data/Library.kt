@@ -312,6 +312,50 @@ class Library(
         }
     }
 
+    /**
+     * One time of a task that repeats let go ("Pular", 1.81: swiped to the left) — or brought back ([skip] false, from
+     * its page). It stays open; that time is neither done nor late, and doesn't ring.
+     */
+    suspend fun skipTime(id: Long, at: Long, skip: Boolean = true, zone: java.time.ZoneId = java.time.ZoneId.systemDefault()) {
+        val e = db.entries().get(id) ?: return
+        val repeat = com.villamediana.novelo.remind.Repeat
+        if (!repeat.repeats(e)) return
+        if ((at in repeat.skippedOf(e)) == skip) return
+        db.entries().update(repeat.skip(e, at, skip, clock(), zone))
+        reminders.sync(listOf(id))
+    }
+
+    /**
+     * A task left for tomorrow ("Amanhã", 1.81: swiped to the left): what made it today's goes to tomorrow at the same
+     * hour, its reminder rings again ([com.villamediana.novelo.remind.Later]). Returns it as it was (for "Desfazer").
+     */
+    suspend fun putOff(id: Long, zone: java.time.ZoneId = java.time.ZoneId.systemDefault()): Entry? {
+        val e = db.entries().get(id) ?: return null
+        val now = clock()
+        if (!com.villamediana.novelo.remind.Later.can(e, now, zone)) return null
+        db.entries().update(com.villamediana.novelo.remind.Later.tomorrow(e, now, zone))
+        reminders.sync(listOf(id))
+        return e
+    }
+
+    /**
+     * "Desfazer" after a swipe (1.81): where it stood and when — done or not, its times, its day and reminder, its
+     * steps (a time done starts them over) — back as [before] had them; what was written in it meanwhile stays.
+     */
+    suspend fun restore(before: Entry) {
+        val e = db.entries().get(before.id) ?: return
+        val now = clock()
+        db.entries().update(
+            e.copy(
+                status = before.status, doneAt = before.doneAt, steps = before.steps, dueAt = before.dueAt, dueHasTime = before.dueHasTime,
+                remindAt = before.remindAt, checkInAt = before.checkInAt, rungAt = before.rungAt, occursFrom = before.occursFrom,
+                doneTimes = before.doneTimes, skippedTimes = before.skippedTimes, updatedAt = now,
+            ),
+        )
+        if (before.status != e.status) db.progress().insert(Progress(entryId = e.id, at = now, text = "", status = before.status))
+        reminders.sync(listOf(e.id))
+    }
+
     suspend fun toggleDone(id: Long) {
         val e = db.entries().get(id) ?: return
         setStatus(id, if (e.statusEnum == Status.DONE) Status.TODO else Status.DONE)
@@ -384,6 +428,7 @@ class Library(
                 rungAt = null,
                 occursFrom = if (same) e.occursFrom else if (rule != null && e.kindEnum == Kind.TASK) at else null,
                 doneTimes = if (same) e.doneTimes else "[]",
+                skippedTimes = if (same) e.skippedTimes else "[]",
                 alarm = alarm ?: e.alarm,
                 updatedAt = clock(),
             ),

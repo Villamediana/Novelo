@@ -50,13 +50,13 @@ class Reminders(private val context: Context, private val db: NoveloDatabase) : 
             // One that already rang keeps its time (it isn't done) but doesn't ring again.
             arm(id, REMIND, e?.remindAt?.takeIf { it > System.currentTimeMillis() && it != e.rungAt })
             arm(id, CHECK_IN, e?.checkInAt?.takeIf { it > System.currentTimeMillis() && e.isOpenTask })
-            // Done in the app (or gone): its notification, if it is up, goes too — one that repeats, when the time that rang is done.
+            // Done in the app (or gone): its notification, if it is up, goes too — one that repeats, when the time that rang is done (or let go).
             val notifications = NotificationManagerCompat.from(context)
             if (e == null || (e.kindEnum == Kind.TASK && e.statusEnum == Status.DONE)) {
                 notifications.cancel(notificationId(id, REMIND))
                 notifications.cancel(notificationId(id, CHECK_IN))
                 AlarmService.stopFor(context, id)
-            } else if (Repeat.repeats(e) && e.rungAt != null && e.rungAt in Repeat.doneOf(e)) {
+            } else if (Repeat.repeats(e) && e.rungAt != null && e.rungAt in Repeat.behind(e)) {
                 notifications.cancel(notificationId(id, REMIND))
             }
         }

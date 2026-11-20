@@ -575,4 +575,16 @@
     <string name="web_linking">Conectando…</string>
     <string name="web_linked">Listo</string>
     <string name="web_linked_hint">El Novelo está abierto en %1$s. Puedes escribir ahí.</string>
+    <!-- Deslizar en las tareas (1.81): → hecho, ← saltar (una vez de una que se repite) o mañana. -->
+    <string name="swipe_done">Hecho</string>
+    <string name="swipe_reopen">Reabrir</string>
+    <string name="swipe_skip">Saltar</string>
+    <string name="swipe_skip_at">Saltar %1$s</string>
+    <string name="swipe_tomorrow">Mañana</string>
+    <string name="undo">Deshacer</string>
+    <string name="undo_done">Hecho</string>
+    <string name="undo_reopened">Reabierto</string>
+    <string name="undo_skipped">Saltado</string>
+    <string name="undo_tomorrow">Para mañana</string>
+    <string name="time_skipped">saltado</string>
 </resources>

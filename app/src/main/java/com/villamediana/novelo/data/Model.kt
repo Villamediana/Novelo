@@ -77,6 +77,11 @@ data class Entry(
      * for a long note with several points; empty: none (a short note, a task, the diary).
      */
     @androidx.room.ColumnInfo(defaultValue = "") val summary: String = "",
+    /**
+     * A task that repeats: its times let go by hand ("Pular", 1.81: the line swiped to the left) — JSON list of ms,
+     * like [doneTimes]. Not done, not late, never rung: as if that time weren't there.
+     */
+    @androidx.room.ColumnInfo(defaultValue = "[]") val skippedTimes: String = "[]",
 ) {
     val kindEnum: Kind get() = Kind.of(kind) ?: Kind.NOTE
     val statusEnum: Status? get() = Status.of(status)
